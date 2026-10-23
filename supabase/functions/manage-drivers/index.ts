@@ -1,9 +1,10 @@
-// Gestion de l'équipe (compte principal uniquement) : liste, ajout d'un chauffeur (jusqu'à 4),
-// modification de sa fiche, mot de passe, activation / désactivation.
+// Gestion de l'équipe (compte principal uniquement) : liste, ajout d'un chauffeur,
+// modification de sa fiche, mot de passe, activation / désactivation, demandes d'inscription.
+// Le nombre maximum de chauffeurs se règle dans l'appli (settings.doc.maxChauffeurs, 4 par défaut).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
-const MAX_EQUIPE = 4;
+const MAX_DEFAUT = 4;
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -36,6 +37,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { action } = body;
+    const { data: st } = await admin.from("settings").select("doc").eq("id", 1).maybeSingle();
+    const MAX_EQUIPE = Math.max(1, Math.min(50, Number(st?.doc?.maxChauffeurs) || MAX_DEFAUT));
+    const actifs = async () => (await admin.from("drivers").select("id", { count: "exact", head: true }).eq("is_admin", false).eq("actif", true)).count ?? 0;
 
     if (action === "list") {
       const { data: rows } = await admin.from("drivers").select("*").order("is_admin", { ascending: false }).order("created_at");
@@ -54,8 +58,7 @@ Deno.serve(async (req) => {
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: "Adresse e-mail invalide" }, 400);
       if (password.length < 8) return json({ error: "Mot de passe : 8 caractères minimum" }, 400);
       if (!f.prenom) return json({ error: "Prénom obligatoire" }, 400);
-      const { count } = await admin.from("drivers").select("id", { count: "exact", head: true }).eq("is_admin", false);
-      if ((count ?? 0) >= MAX_EQUIPE) return json({ error: `Maximum ${MAX_EQUIPE} chauffeurs dans l'équipe` }, 400);
+      if ((await actifs()) >= MAX_EQUIPE) return json({ error: `Maximum ${MAX_EQUIPE} chauffeurs dans l'équipe` }, 400);
       const { data: cu, error: ce } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
       if (ce || !cu?.user) {
         const msg = /already|registered|exists/i.test(ce?.message ?? "") ? "Cette adresse e-mail a déjà un compte" : (ce?.message ?? "Erreur");
@@ -67,7 +70,7 @@ Deno.serve(async (req) => {
     }
 
     const id = String(body.id ?? "");
-    const { data: target } = await admin.from("drivers").select("id, is_admin").eq("id", id).maybeSingle();
+    const { data: target } = await admin.from("drivers").select("id, is_admin, actif, demande").eq("id", id).maybeSingle();
     if (!target) return json({ error: "Chauffeur introuvable" }, 404);
 
     if (action === "update") {
@@ -86,10 +89,18 @@ Deno.serve(async (req) => {
     if (action === "actif") {
       if (target.is_admin) return json({ error: "Le compte principal reste actif" }, 400);
       const actif = body.actif === true;
-      const { error } = await admin.from("drivers").update(actif ? { actif } : { actif, status: "off" }).eq("id", id);
+      if (actif && !target.actif && (await actifs()) >= MAX_EQUIPE) return json({ error: `Équipe complète (${MAX_EQUIPE} chauffeurs). Augmentez le maximum ou désactivez un chauffeur.` }, 400);
+      const { error } = await admin.from("drivers").update(actif ? { actif, demande: false } : { actif, status: "off" }).eq("id", id);
       if (error) return json({ error: error.message }, 400);
       // Un chauffeur désactivé est déconnecté et ne peut plus se reconnecter
       await admin.auth.admin.updateUserById(id, { ban_duration: actif ? "none" : "876000h" });
+      return json({ ok: true });
+    }
+    if (action === "refuse") {
+      // Refuser une demande d'inscription : le compte est supprimé (il n'a jamais eu de course)
+      if (!target.demande) return json({ error: "Ce n'est pas une demande en attente" }, 400);
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
     }
     return json({ error: "bad_request" }, 400);

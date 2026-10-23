@@ -29,13 +29,12 @@
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, docOf, carLabel, configured, DEFAULT_SETTINGS, $, esc, todayISO, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  tarifOf, priceFor, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+  revolutLink, tarifOf, priceFor, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
 
-const MAX_EQUIPE = 4;
-const S = { user: null, uid: null, ok: false, row: null, team: [], teamList: null, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir",
+const S = { user: null, uid: null, ok: false, pending: false, signup: false, row: null, team: [], teamList: null, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir",
   me: null, err: "", seen: null, edit: null, pw: null, add: false, teamMsg: "" };
 const isAdmin = () => !!S.row?.is_admin;
 const driver = () => ({ status: S.row?.status || "off", lat: S.row?.lat, lng: S.row?.lng, at: S.row?.at });
@@ -43,6 +42,16 @@ const nameOf = id => { const d = S.team.find(x => x.id === id); return d ? d.pre
 const mine = b => b.driverId === S.uid;
 const offerForMe = b => b.statut === "en_attente" && !b.driverId && (b.offeredTo === S.uid || !b.offeredTo);
 const editingForm = () => S.edit || S.pw || S.add;
+// Réglages de l'équipe (modifiables par le compte principal)
+const maxEq = () => Math.max(1, Math.min(50, Number(S.settings?.maxChauffeurs) || 4));
+const pctOf = () => { const v = Number(S.settings?.commission); return Number.isFinite(v) && S.settings?.commission !== undefined && S.settings?.commission !== "" ? Math.max(0, Math.min(100, v)) : 10; };
+// Part due au compte principal par un chauffeur : somme des parts des courses terminées, moins ce qui a déjà été réglé
+function partOf(id) {
+  const du = S.bookings.filter(b => b.statut === "terminee" && b.driverId === id).reduce((t, b) => t + (Number(b.commission) || 0), 0);
+  const d = S.team.find(x => x.id === id) || (id === S.uid ? S.row : null);
+  const paye = Number(d?.commission_payee) || 0;
+  return { du: Math.round(du * 100) / 100, paye, reste: Math.max(0, Math.round((du - paye) * 100) / 100) };
+}
 
 async function writeSettings(patch) {
   const next = { ...(S.settings || {}), ...patch };
@@ -214,17 +223,22 @@ async function setStatus(status) {
 /* ---------- écrans ---------- */
 function render() {
   const app = $("#app");
-  if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = loginView(); bindLogin(); return; }
-  if (!S.ok) { app.innerHTML = `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas un compte chauffeur, ou il a été désactivé.</p><button class="ghost" id="out">Se déconnecter</button></div>`; $("#out").onclick = () => sb.auth.signOut(); return; }
+  if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = S.signup ? signupView() : loginView(); S.signup ? bindSignup() : bindLogin(); return; }
+  if (!S.ok) {
+    app.innerHTML = S.pending
+      ? `<div class="panel stack" style="margin-top:20px"><h2>Demande envoyée ✅</h2><p>Votre compte chauffeur est créé. Il doit maintenant être <b>accepté par le responsable</b>.</p><p class="muted small">Cette page s'ouvrira toute seule dès que c'est fait. Vous pouvez la fermer et revenir plus tard.</p><button class="ghost" id="out">Se déconnecter</button></div>`
+      : `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas un compte chauffeur, ou il a été désactivé.</p><button class="ghost" id="out">Se déconnecter</button></div>`;
+    $("#out").onclick = () => sb.auth.signOut(); return;
+  }
   if (!S.settings || !S.row) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
   ensureMap();
   $("#who").textContent = S.row.prenom ? S.row.prenom : "";
-  const pending = S.bookings.filter(offerForMe).length;
+  const pending = S.bookings.filter(offerForMe).length, demandes = isAdmin() ? S.team.filter(x => x.demande).length : 0;
   const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users]] : []), ["reglages", "Réglages", IC.sliders]];
   if (!tabs.some(t => t[0] === S.tab)) S.tab = "resa";
   const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav");
   nav.innerHTML = `<div class="in" role="tablist">${tabs.map(([k, l, ic]) =>
-    `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : ""}</button>`).join("")}</div>`;
+    `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : k === "equipe" && demandes ? `<span class="badge">${demandes}</span>` : ""}</button>`).join("")}</div>`;
   nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); render(); window.scrollTo(0, 0); });
   const act = S.tab === "resa" ? activeRide() : null;
   const box = $("#mapbox"), wasBig = box.classList.contains("big");
@@ -243,7 +257,38 @@ function loginView() {
     <label class="f" for="l-mail">E-mail<input id="l-mail" type="email" autocomplete="username" value=""></label>
     <label class="f" for="l-pass">Mot de passe<input id="l-pass" type="password" autocomplete="current-password"></label>
     ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
-    <button class="big" type="submit">Se connecter</button></form>`;
+    <button class="big" type="submit">Se connecter</button>
+    <button type="button" class="ghost" id="to-signup">Pas encore de compte ? Créer mon compte chauffeur</button></form>`;
+}
+function signupView() {
+  return `<form id="signup" class="panel stack" novalidate style="margin-top:20px"><h2>Devenir chauffeur</h2>
+    <p class="muted small">Remplissez ce formulaire. Le responsable recevra votre demande et l'acceptera.</p>
+    ${profileFields("s")}
+    <label class="f" for="s-email">E-mail (pour vous connecter)<input id="s-email" type="email" autocomplete="username" autocapitalize="off"></label>
+    <label class="f" for="s-pass">Choisissez un mot de passe (8 caractères minimum)<input id="s-pass" type="password" autocomplete="new-password"></label>
+    ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+    <button class="big" type="submit">Envoyer ma demande</button>
+    <button type="button" class="ghost" id="to-login">J'ai déjà un compte</button></form>`;
+}
+function bindSignup() {
+  $("#to-login").onclick = () => { S.signup = false; S.err = ""; render(); };
+  $("#signup").addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = readProfile("s"), email = $("#s-email").value.trim(), password = $("#s-pass").value;
+    if (!f.prenom || !f.nom) { S.err = "Indiquez votre prénom et votre nom."; return render(); }
+    if (f.tel.replace(/\D/g, "").length < 9) { S.err = "Indiquez un numéro de téléphone valide."; return render(); }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { S.err = "Adresse e-mail invalide."; return render(); }
+    if (password.length < 8) { S.err = "Mot de passe : 8 caractères minimum."; return render(); }
+    const btn = e.currentTarget.querySelector("[type=submit]"); btn.disabled = true; btn.textContent = "Envoi…";
+    try {
+      const { data, error } = await sb.functions.invoke("driver-signup", { body: { ...f, email, password } });
+      let msg = data?.error || "";
+      if (error) { try { msg = (await error.context.json()).error; } catch { } msg = msg || "Envoi impossible. Vérifiez votre connexion."; }
+      if (msg) { S.err = msg; return render(); }
+      S.err = ""; S.signup = false;
+      await sb.auth.signInWithPassword({ email, password });
+    } catch { S.err = "Envoi impossible. Vérifiez votre connexion."; render(); }
+  });
 }
 function bindLogin() {
   $("#login").addEventListener("submit", async e => {
@@ -251,6 +296,7 @@ function bindLogin() {
     const { error } = await sb.auth.signInWithPassword({ email: $("#l-mail").value.trim(), password: $("#l-pass").value });
     if (error) { S.err = /banned/i.test(error.message || "") ? "Ce compte a été désactivé." : "E-mail ou mot de passe incorrect."; render(); } else S.err = "";
   });
+  $("#to-signup").onclick = () => { S.signup = true; S.err = ""; render(); };
 }
 
 // Une course compte le jour où elle est terminée (pas le jour prévu)
@@ -281,10 +327,17 @@ function coursesView() {
     ${on ? `<p class="muted small">Position GPS ${d.at ? "envoyée " + ago(d.at) : "en attente…"}. Gardez cette page ouverte pendant votre service.</p>` : ""}
   </section>
   ${!S.row.modele || !S.row.plaque ? `<div class="msg warn">Ajoutez votre <b>modèle de voiture</b> et votre <b>plaque</b> dans Réglages : vos clients les verront.</div>` : ""}
+  ${isAdmin() ? "" : partCard()}
   <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${st.today.length}</div><div class="k">faite${st.today.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(st.today))}</div><div class="k">gagné aujourd'hui</div></div></div>
   <p class="muted small center">Ce mois-ci : <b>${st.month.length}</b> course${st.month.length > 1 ? "s" : ""} · <b>${eur(sum(st.month))}</b> · Total : ${st.done.length} course${st.done.length > 1 ? "s" : ""} · ${eur(sum(st.done))}</p>
   <div class="filters">${filters.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
   ${list.length ? list.map(rideCard).join("") : `<div class="empty">Aucune course ici. Les demandes arrivent ici dès qu'un client réserve.</div>`}`;
+}
+function partCard() {
+  const p = partOf(S.uid); if (!p.du && !p.reste) return "";
+  const link = revolutLink(S.settings?.revtag, p.reste);
+  return `<section class="panel stack"><div class="between"><div><h3>Part Transporteur</h3><p class="small muted">${pctOf()} % de chaque course terminée</p></div><span class="price" style="font-family:var(--display);font-weight:700;font-size:24px;color:var(--gold)">${eur(p.reste)}</span></div>
+    ${p.reste > 0 ? `<p class="small">À reverser au responsable. Il confirmera la réception.</p>${link ? `<a class="navbtn" style="background:var(--btn);color:var(--btn-ink);border-color:var(--btn)" href="${link}" target="_blank" rel="noopener">Payer ${eur(p.reste)} avec Revolut</a>` : ""}` : `<p class="small muted">Tout est réglé ✅ (${eur(p.paye)} déjà reversés)</p>`}</section>`;
 }
 function offerLine(b) {
   if (b.statut !== "en_attente") return "";
@@ -341,7 +394,9 @@ const readProfile = p => ({ prenom: $(`#${p}-prenom`).value.trim(), nom: $(`#${p
 function equipeView() {
   const list = S.teamList;
   if (!list) return `<h2>Mon équipe</h2><div class="loading">Chargement…</div>`;
-  const others = list.filter(d => !d.is_admin), live = id => S.team.find(x => x.id === id) || {};
+  const demandes = list.filter(d => d.demande), membres = list.filter(d => !d.demande);
+  const others = membres.filter(d => !d.is_admin && d.actif), live = id => S.team.find(x => x.id === id) || {};
+  const MAX_EQUIPE = maxEq();
   const card = d => {
     const L = { ...d, ...live(d.id) }, st = statsOf(d.id), on = d.actif && fresh(L);
     const [cls, txt] = !d.actif ? ["off", "Désactivé"] : on && L.status === "dispo" ? ["dispo", "En ligne"] : on && L.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
@@ -352,6 +407,7 @@ function equipeView() {
       ${d.is_admin ? `<p class="small muted">Compte principal (vous)</p>` : ""}
       <div class="facts"><span class="fact mono">${esc(d.email)}</span>${L.tel ? `<span class="fact mono">${esc(L.tel)}</span>` : ""}${L.revtag ? `<span class="fact mono">@${esc(L.revtag)}</span>` : ""}</div>
       <div class="facts"><span class="fact">Aujourd'hui <b>${st.today.length}</b> · ${eur(sum(st.today))}</span><span class="fact">Ce mois <b>${st.month.length}</b> · ${eur(sum(st.month))}</span></div>
+      ${d.is_admin ? "" : (() => { const p = partOf(d.id); return `<div class="between" style="background:var(--gold-soft);border-radius:12px;padding:10px 12px"><div class="small">Ta part : <b>${eur(p.du)}</b> · réglé ${eur(p.paye)}<br><b>Reste à recevoir : ${eur(p.reste)}</b></div>${p.reste > 0 ? `<button class="sm" data-regle="${d.id}|${p.du}">Marquer réglé</button>` : ""}</div>`; })()}
       ${S.edit === d.id ? `<form class="stack" data-edit-form="${d.id}" novalidate>${profileFields("e", L)}<div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
       : S.pw === d.id ? `<form class="stack" data-pw-form="${d.id}" novalidate><label class="f" for="np">Nouveau mot de passe (8 caractères minimum)<input id="np" type="text" autocomplete="off" autocapitalize="off"></label><div class="actions"><button type="submit">Changer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
       : `<div class="actions"><button class="ghost sm" data-edit="${d.id}">Modifier</button>${d.is_admin ? "" : `<button class="ghost sm" data-pw="${d.id}">Mot de passe</button><button class="${d.actif ? "danger" : ""} sm" data-actif="${d.id}|${d.actif ? "0" : "1"}">${d.actif ? "Désactiver" : "Réactiver"}</button>`}</div>`}
@@ -360,15 +416,24 @@ function equipeView() {
   const link = location.origin + location.pathname;
   return `<h2>Mon équipe</h2>
   <p class="muted small">Chaque chauffeur se connecte avec son e-mail et son mot de passe sur l'espace chauffeur. Il voit seulement ses courses. Les clients paient sur son propre Revolut.</p>
-  ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé/i.test(S.teamMsg) ? "ok" : "err"}" role="status">${esc(S.teamMsg)}</div>` : ""}
-  ${list.map(card).join("")}
+  ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé|réactivé|désactivé|refusée/i.test(S.teamMsg) ? "ok" : "err"}" role="status">${esc(S.teamMsg)}</div>` : ""}
+  <form id="eq-form" class="panel stack" novalidate><h3>Réglages de l'équipe</h3>
+    <div class="row"><label class="f" for="eq-max">Nombre maximum de chauffeurs<input id="eq-max" class="mono" type="number" inputmode="numeric" min="1" max="50" value="${MAX_EQUIPE}"></label>
+    <label class="f" for="eq-pct">Ta part sur chaque course (%)<input id="eq-pct" class="mono" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${pctOf()}"></label></div>
+    <p class="muted small">Exemple : course à 40 € → ta part ${eur(40 * pctOf() / 100)}. Le pourcentage s'applique aux courses terminées après le changement.</p>
+    <button class="ghost" type="submit">Enregistrer</button></form>
+  ${demandes.length ? `<h3>Demandes d'inscription (${demandes.length})</h3>${demandes.map(d => `<article class="ride new">
+      <div><div class="nm" style="font-weight:700;font-size:17px">${esc(d.prenom)} ${esc(d.nom)}</div><div class="small">${esc(carLabel(d)) || `<span class="muted">Véhicule non renseigné</span>`}</div></div>
+      <div class="facts"><span class="fact mono">${esc(d.email)}</span>${d.tel ? `<span class="fact mono">${esc(d.tel)}</span>` : ""}${d.revtag ? `<span class="fact mono">@${esc(d.revtag)}</span>` : ""}</div>
+      <div class="actions">${d.tel ? `<a class="navbtn" href="tel:${esc(String(d.tel).replace(/\s/g, ""))}">Appeler</a>` : ""}<button class="go" data-actif="${d.id}|1">Accepter</button><button class="danger" data-refuse-dem="${d.id}">Refuser</button></div></article>`).join("")}` : ""}
+  ${membres.map(card).join("")}
   ${others.length < MAX_EQUIPE ? (S.add ? `<form id="add-form" class="panel stack" novalidate><h3>Nouveau chauffeur</h3>${profileFields("a")}
       <label class="f" for="a-email">E-mail de connexion<input id="a-email" type="email" autocomplete="off" autocapitalize="off"></label>
       <label class="f" for="a-pass">Mot de passe (8 caractères minimum)<input id="a-pass" type="text" autocomplete="off" autocapitalize="off"></label>
       <div class="actions"><button type="submit" class="big">Ajouter le chauffeur</button></div><button type="button" class="ghost" data-close>Annuler</button></form>`
     : `<button class="big" id="add-open">+ Ajouter un chauffeur (${others.length}/${MAX_EQUIPE})</button>`)
-    : `<p class="muted small center">Équipe complète : ${MAX_EQUIPE} chauffeurs.</p>`}
-  <div class="panel stack"><h3>Lien à donner à vos chauffeurs</h3><p class="mono small" style="word-break:break-all">${esc(link)}</p><div><button class="ghost sm" data-copy="${esc(link)}">Copier le lien</button></div></div>`;
+    : `<p class="muted small center">Équipe complète : ${MAX_EQUIPE} chauffeurs. Augmente le maximum ci-dessus pour en ajouter.</p>`}
+  <div class="panel stack"><h3>Lien à donner à vos chauffeurs</h3><p class="small muted">Ils ouvrent ce lien, appuient sur « Créer mon compte chauffeur », et tu acceptes leur demande ici.</p><p class="mono small" style="word-break:break-all">${esc(link)}</p><div><button class="ghost sm" data-copy="${esc(link)}">Copier le lien</button></div></div>`;
 }
 
 function reglagesView() {
@@ -481,8 +546,29 @@ function bind() {
     const btn = e.currentTarget, [id, v] = btn.dataset.actif.split("|");
     if (v === "0" && btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer"; return; }
     btn.disabled = true;
-    try { await team("actif", { id, actif: v === "1" }); S.teamMsg = v === "1" ? "Chauffeur réactivé." : "Chauffeur désactivé : il ne peut plus se connecter."; await loadTeamList(); render(); }
+    try { await team("actif", { id, actif: v === "1" }); S.teamMsg = v === "1" ? "Chauffeur accepté : il peut maintenant se connecter (réactivé)." : "Chauffeur désactivé : il ne peut plus se connecter."; await loadTeamList(); render(); }
     catch (err) { toast(err.message); btn.disabled = false; }
+  });
+  on("[data-refuse-dem]", "click", async e => {
+    const btn = e.currentTarget, id = btn.dataset.refuseDem;
+    if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer le refus"; return; }
+    btn.disabled = true;
+    try { await team("refuse", { id }); S.teamMsg = "Demande refusée."; await loadTeamList(); render(); } catch (err) { toast(err.message); btn.disabled = false; }
+  });
+  on("[data-regle]", "click", async e => {
+    const btn = e.currentTarget, [id, du] = btn.dataset.regle.split("|");
+    if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer"; return; }
+    btn.disabled = true;
+    const { error } = await sb.from("drivers").update({ commission_payee: Number(du) }).eq("id", id);
+    if (error) { toast("Enregistrement impossible"); btn.disabled = false; return; }
+    S.team = S.team.map(x => x.id === id ? { ...x, commission_payee: Number(du) } : x); S.teamMsg = "Paiement enregistré."; render();
+  });
+  $("#eq-form")?.addEventListener("submit", e => {
+    e.preventDefault();
+    const max = Math.round(Number($("#eq-max").value)), pct = Number(String($("#eq-pct").value).replace(",", "."));
+    if (!(max >= 1 && max <= 50)) return toast("Maximum entre 1 et 50 chauffeurs");
+    if (!(pct >= 0 && pct <= 100)) return toast("Pourcentage entre 0 et 100");
+    saveSettings({ maxChauffeurs: max, commission: pct }, "Réglages de l'équipe enregistrés");
   });
   $("#add-form")?.addEventListener("submit", async e => {
     e.preventDefault(); const f = readProfile("a"), email = $("#a-email").value.trim(), password = $("#a-pass").value;
@@ -532,14 +618,29 @@ else {
   const typing = () => ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
   const quiet = () => typing() || S.sliding || editingForm();
   const sig = d => d ? JSON.stringify({ ...d, lat: 0, lng: 0, at: 0 }) : "";
+  // En attente de validation : on vérifie toutes les 15 secondes si le compte a été accepté
+  let waitT = null;
+  function waitApproval(user) {
+    clearInterval(waitT);
+    waitT = setInterval(async () => {
+      if (current !== user.id) return clearInterval(waitT);
+      const { data } = await sb.rpc("is_driver");
+      if (data === true) { clearInterval(waitT); current = undefined; onUser(user); }
+    }, 15000);
+  }
   async function onUser(user) {
     if ((user?.id || null) === current) return; current = user?.id || null;
     subs.forEach(c => sb.removeChannel(c)); subs = [];
     S.user = user || null; S.uid = user?.id || null; S.ok = false; S.row = null; S.team = []; S.teamList = null; S.bookings = []; S.seen = null;
     if (!user || user.is_anonymous) { S.user = null; render(); return; }
     const { data: isDriver } = await sb.rpc("is_driver");
-    S.ok = isDriver === true;
-    if (!S.ok) { render(); return; }
+    S.ok = isDriver === true; S.pending = false;
+    if (!S.ok) {
+      const { data: mine } = await sb.from("drivers").select("demande").eq("id", user.id).maybeSingle();
+      S.pending = !!mine?.demande; render();
+      if (S.pending) waitApproval(user);
+      return;
+    }
     subs.push(watchTable("drivers", async () => {
       const { data, error } = await sb.from("drivers").select("*"); if (error) throw error; return data;
     }, rows => {
@@ -549,6 +650,8 @@ else {
       // Garder la position la plus récente connue localement
       S.row = S.me && S.row ? { ...me, lat: S.row.lat ?? me.lat, lng: S.row.lng ?? me.lng, at: Math.max(S.row.at || 0, me.at || 0) } : me;
       S.team = rows;
+      // Nouvelle demande d'inscription : on recharge la liste de l'équipe (avec les e-mails)
+      if (me.is_admin && S.tab === "equipe" && S.teamList && rows.filter(r => r.demande).length !== S.teamList.filter(r => r.demande).length) loadTeamList();
       if (first && me.status !== "off") startGPS();
       if (first || (changed && !quiet() && !activeRide())) render();
       syncMap(false);
