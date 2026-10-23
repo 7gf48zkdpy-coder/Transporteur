@@ -41,6 +41,20 @@ async function writeSettings(patch) {
   const { error } = await sb.from("settings").update({ doc: next }).eq("id", 1);
   if (error) throw error; S.settings = next;
 }
+// Notification au client (course acceptée / chauffeur proche) — envoyée par le serveur
+async function notifyClient(bookingId, kind, minutes) {
+  try { const { data } = await sb.functions.invoke("notify", { body: { booking_id: bookingId, kind, minutes } }); return data; } catch { return null; }
+}
+const nearSent = new Set();
+function checkNear() {
+  if (!S.me) return;
+  for (const b of S.bookings) {
+    if (b.statut !== "confirmee" || !b.depart?.lat || b.notifNear || nearSent.has(b.id)) continue;
+    if (b.date !== todayISO()) continue;
+    const m = dist(S.me, b.depart);
+    if (m <= 1500) { nearSent.add(b.id); notifyClient(b.id, "near", Math.max(1, Math.round(m / 1000 / 30 * 60))); }
+  }
+}
 async function saveSettings(patch, msg) { try { await writeSettings(patch); if (msg) toast(msg); render(); syncMap(false); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); } }
 
 /* ---------- carte ---------- */
@@ -76,6 +90,7 @@ function startGPS() {
       writeSettings({ driver: { ...driver(), lat: S.me.lat, lng: S.me.lng, at: now } }).catch(() => { });
     }
     syncMap(!M.me);
+    checkNear();
   }, e => { toast(e.code === 1 ? "Autorisez la localisation pour être visible des clients." : "Position GPS introuvable pour le moment."); },
   { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
   if ("wakeLock" in navigator) navigator.wakeLock.request("screen").then(w => wake = w).catch(() => { });
@@ -188,7 +203,9 @@ function reglagesView() {
     <div class="facts">${[5, 15, 30, 60, 100].map(k => `<span class="fact">${k} km → <b>${eur(priceFor(k, T))}</b></span>`).join("")}</div>
     ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
     <button class="big" type="submit">Enregistrer les tarifs</button></form>
-  <form id="pay-form" class="panel stack"><h3>Paiement par carte (virement)</h3>
+  <form id="pay-form" class="panel stack"><h3>Paiement par carte</h3>
+    <label class="f" for="p-revtag">Revtag Revolut (paiement par carte ou Apple Pay)<input id="p-revtag" class="mono" placeholder="@votrenom" value="${esc(s.revtag ? "@" + String(s.revtag).replace(/^@/, "") : "")}" autocapitalize="off" autocorrect="off"></label>
+    <p class="muted small">Avec un Revtag, vos clients ont un bouton « Payer par carte » qui ouvre Revolut avec le montant de la course. Sinon, ils voient votre IBAN pour un virement.</p>
     <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
     <label class="f" for="p-iban">IBAN<input id="p-iban" class="mono" value="${esc(s.iban || "")}"></label>
     <div class="row"><label class="f" for="p-bic">BIC<input id="p-bic" class="mono" value="${esc(s.bic || "")}"></label><label class="f" for="p-banque">Banque<input id="p-banque" value="${esc(s.banque || "")}"></label></div>
@@ -211,6 +228,7 @@ function bind() {
       const { error } = await sb.from("bookings").update(patch).eq("id", id); if (error) throw error;
       toast(st === "confirmee" ? "Course acceptée" : st === "terminee" ? "Course terminée" : st === "annulee" ? "Course annulée" : "Remise en attente");
       const d = driver();
+      if (st === "confirmee") notifyClient(id, "accepted");
       if (st === "confirmee" && b?.mode === "immediat" && d.status === "dispo") setStatus("course");
       else if (st === "terminee" && d.status === "course") setStatus("dispo");
     } catch { toast("Mise à jour impossible"); }
@@ -228,7 +246,7 @@ function bind() {
   });
   $("#pay-form")?.addEventListener("submit", e => {
     e.preventDefault();
-    saveSettings({ titulaire: $("#p-tit").value.trim(), iban: $("#p-iban").value.trim().toUpperCase(), bic: $("#p-bic").value.trim().toUpperCase(), banque: $("#p-banque").value.trim() }, "Enregistré");
+    saveSettings({ revtag: $("#p-revtag").value.trim().replace(/^@/, ""), titulaire: $("#p-tit").value.trim(), iban: $("#p-iban").value.trim().toUpperCase(), bic: $("#p-bic").value.trim().toUpperCase(), banque: $("#p-banque").value.trim() }, "Enregistré");
   });
   $("#copy-link")?.addEventListener("click", () => copy(location.origin + location.pathname.replace(/chauffeur\.html$/, "")));
   $("#logout")?.addEventListener("click", async () => { await setStatus("off"); sb.auth.signOut(); });
