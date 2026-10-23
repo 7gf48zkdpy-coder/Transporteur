@@ -33,12 +33,13 @@
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC, tarifOf, priceFor,
-  searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen } from "./shared.js";
+  searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen,
+  pushStatus, enablePush, isStandalone, revolutLink } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
 
-const S = { uid: null, me: undefined, settings: {}, rides: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
+const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
   form: { mode: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "" } };
 
 /* ---------- carte ---------- */
@@ -147,6 +148,7 @@ function mainView() {
   return `
   ${S.lastRef ? confirmBox() : ""}
   ${live.length ? `<section class="stack"><h3>Mes courses en cours</h3>${live.map(rideCard).join("")}</section>` : ""}
+  ${pushCard()}
   <section class="panel stack">
     <h2>Où allez-vous ?</h2>
     <div class="tiles" role="group" aria-label="Quand">
@@ -182,10 +184,10 @@ function mainView() {
     </div>
     ${st("Paiement")}
     <div class="choice">
-      <label><input type="radio" name="pay" value="cb" ${f.paiement === "cb" ? "checked" : ""}><span><b>Carte bancaire</b><small>Par virement</small></span></label>
+      <label><input type="radio" name="pay" value="cb" ${f.paiement === "cb" ? "checked" : ""}><span><b>Carte bancaire</b><small>${revolutLink(S.settings.revtag) ? "Carte ou Apple Pay" : "Par virement"}</small></span></label>
       <label><input type="radio" name="pay" value="especes" ${f.paiement === "especes" ? "checked" : ""}><span><b>Espèces</b><small>Au chauffeur</small></span></label>
     </div>
-    ${f.paiement === "cb" ? ibanBlock() : ""}
+    ${f.paiement === "cb" ? (revolutLink(S.settings.revtag) ? `<p class="muted small">Après la réservation, un bouton « Payer par carte » vous permet de régler en toute sécurité via Revolut (carte bancaire ou Apple Pay).</p>` : ibanBlock()) : ""}
     <details class="inline" ${f.note ? "open" : ""}><summary>+ Ajouter un message pour le chauffeur</summary><textarea id="note" style="margin-top:8px" placeholder="Numéro de vol, code d'accès, siège enfant…" aria-label="Message pour le chauffeur">${esc(f.note)}</textarea></details>
   </section>
   ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
@@ -195,12 +197,28 @@ function mainView() {
   <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
 }
 
+function pushCard() {
+  if (S.push === "on" || S.push === "denied") return "";
+  const installed = isStandalone();
+  return `<section class="panel stack" style="box-shadow:inset 0 0 0 2px var(--gold-bright),var(--shadow)">
+    <div class="between"><div><h3>Notifications</h3><p style="font-weight:600">Soyez prévenu quand votre chauffeur arrive</p></div><span style="font-size:28px" aria-hidden="true">🔔</span></div>
+    ${S.push === "unsupported" && !installed
+      ? `<p class="small muted">Pour recevoir les notifications sur iPhone, installez d'abord l'appli : bouton <b>Partager</b> → <b>Sur l'écran d'accueil</b>, puis ouvrez-la depuis l'icône.</p>`
+      : `<button class="big" id="push-on">Activer les notifications</button>`}
+  </section>`;
+}
+function payCardBtn(r) {
+  const s = { ...DEFAULT_SETTINGS, ...S.settings }, link = revolutLink(s.revtag, r.prix);
+  if (r.paiement !== "cb" || !link || r.statut === "annulee" || r.paye) return "";
+  return `<a class="navbtn" style="background:var(--btn);color:var(--btn-ink);border-color:var(--btn)" href="${link}" target="_blank" rel="noopener">Payer ${r.prix ? eur(r.prix) + " " : ""}par carte (Revolut)</a>`;
+}
 function rideCard(r) {
   return `<article class="ride">
     <div class="between"><span class="when">${r.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(r.date)} · ${esc(r.time)}</span><span class="pill s-${r.statut}">${STATUS[r.statut] || r.statut}</span></div>
     <div class="route"><span class="pin"></span><span>${esc(r.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(r.arrivee?.label)}</span></div>
     <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "CB virement" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
     ${r.statut === "confirmee" && r.mode === "immediat" ? `<div class="msg ok">Votre chauffeur est en route. Suivez sa voiture sur la carte.</div>` : ""}
+    ${payCardBtn(r)}
     ${r.statut === "en_attente" ? `<div><button class="link" data-cancel="${r.id}">Annuler ma demande</button></div>` : ""}
     <p class="muted small mono">Réf. ${esc(r.ref)}</p>
   </article>`;
@@ -211,7 +229,7 @@ function confirmBox() {
   return `<section class="panel stack" style="box-shadow:inset 0 0 0 2px var(--live),var(--shadow)">
     <div class="between"><h2>Demande envoyée</h2><span class="pill s-${r.statut}">${STATUS[r.statut]}</span></div>
     <p>Le chauffeur a reçu votre demande. Vous verrez « Confirmée » dès qu'il l'accepte.</p>
-    ${r.paiement === "cb" ? `<p class="small">Pour le virement, indiquez la référence <b class="mono">${esc(r.ref)}</b>.</p><div class="actions"><button class="ghost sm" data-copy="${esc(s.iban)}">Copier l'IBAN</button><button class="ghost sm" data-copy="${esc(r.ref)}">Copier la référence</button></div>` : ""}
+    ${r.paiement === "cb" ? (revolutLink(s.revtag) ? `<p class="small">Vous pourrez payer par carte ou Apple Pay avec le bouton <b>« Payer par carte »</b> sur votre course.</p>` : `<p class="small">Pour le virement, indiquez la référence <b class="mono">${esc(r.ref)}</b>.</p><div class="actions"><button class="ghost sm" data-copy="${esc(s.iban)}">Copier l'IBAN</button><button class="ghost sm" data-copy="${esc(r.ref)}">Copier la référence</button></div>`) : ""}
     <button class="ghost" id="close-conf">OK</button></section>`;
 }
 
@@ -260,6 +278,12 @@ function bindMain() {
     toast(error ? "Annulation impossible" : "Demande annulée");
   });
   on("#send", "click", send);
+  on("#push-on", "click", async e => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = "Activation…";
+    try { await enablePush(); S.push = "on"; toast("Notifications activées 🔔"); }
+    catch (err) { toast(err.message); S.push = await pushStatus(); }
+    render();
+  });
 }
 async function send() {
   const f = S.form, m = mode(), q = quote();
@@ -305,7 +329,7 @@ else {
   async function start(user) {
     if (started) return; started = true; S.uid = user.id;
     const { data } = await sb.from("clients").select("prenom,nom,tel").eq("id", S.uid).maybeSingle();
-    S.me = data || null; render();
+    S.me = data || null; S.push = await pushStatus(); render();
     watchTable("bookings", async () => {
       const { data, error } = await sb.from("bookings").select("*").eq("client_uid", S.uid).order("created_at", { ascending: false });
       if (error) throw error; return data.map(rowToBooking);
