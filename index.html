@@ -217,7 +217,10 @@ function rideCard(r) {
     <div class="between"><span class="when">${r.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(r.date)} · ${esc(r.time)}</span><span class="pill s-${r.statut}">${STATUS[r.statut] || r.statut}</span></div>
     <div class="route"><span class="pin"></span><span>${esc(r.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(r.arrivee?.label)}</span></div>
     <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "CB virement" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
-    ${r.statut === "confirmee" && r.mode === "immediat" ? `<div class="msg ok">Votre chauffeur est en route. Suivez sa voiture sur la carte.</div>` : ""}
+    ${r.statut === "confirmee" ? (r.phase === "arrive" ? `<div class="msg ok"><b>Votre chauffeur est arrivé 📍</b> Il vous attend : 6 minutes d'attente offertes.</div>`
+      : r.phase === "abord" ? `<div class="msg ok"><b>Bonne route !</b> Vous êtes en route vers votre destination.</div>`
+      : r.phase === "approche" ? `<div class="msg ok"><b>Votre chauffeur est en route.</b> Suivez sa voiture sur la carte.</div>` : "") : ""}
+    ${r.statut === "confirmee" || r.statut === "en_attente" ? `<button class="ghost sm" data-share="${r.id}">Partager le suivi avec un proche</button>` : ""}
     ${payCardBtn(r)}
     ${r.statut === "en_attente" ? `<div><button class="link" data-cancel="${r.id}">Annuler ma demande</button></div>` : ""}
     <p class="muted small mono">Réf. ${esc(r.ref)}</p>
@@ -278,6 +281,16 @@ function bindMain() {
     toast(error ? "Annulation impossible" : "Demande annulée");
   });
   on("#send", "click", send);
+  on("[data-share]", "click", async e => {
+    const b = e.currentTarget; b.disabled = true;
+    try {
+      const { data: tok, error } = await sb.rpc("ensure_share_token", { bid: b.dataset.share }); if (error || !tok) throw error;
+      const url = location.origin + location.pathname.replace(/[^/]*$/, "") + "suivi.html?t=" + tok;
+      if (navigator.share) { try { await navigator.share({ title: "Suivi de ma course", text: "Suis ma course Transporteur en direct :", url }); } catch { } }
+      else await copy(url);
+    } catch { toast("Partage impossible pour le moment"); }
+    b.disabled = false;
+  });
   on("#push-on", "click", async e => {
     const b = e.currentTarget; b.disabled = true; b.textContent = "Activation…";
     try { await enablePush(); S.push = "on"; toast("Notifications activées 🔔"); }
