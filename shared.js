@@ -33,7 +33,16 @@ export const revolutLink = (tag, amount) => { const t = String(tag || "").trim()
 
 /* ---------- données ---------- */
 // Une réservation = colonnes (id, statut, client_uid) + détails dans doc
-export const rowToBooking = r => ({ ...(r.doc || {}), id: r.id, statut: r.statut, clientUid: r.client_uid });
+export const rowToBooking = r => ({ ...(r.doc || {}), id: r.id, statut: r.statut, clientUid: r.client_uid,
+  driverId: r.driver_id || null, offeredTo: r.offered_to || null, offeredAt: r.offered_at ? Date.parse(r.offered_at) : null,
+  requestedDriver: r.requested_driver || null, refused: r.refused || [] });
+// Détails stockés dans doc (sans les colonnes)
+export const docOf = b => { const { id, statut, clientUid, driverId, offeredTo, offeredAt, requestedDriver, refused, ...doc } = b; return doc; };
+// Chauffeurs actifs (sans téléphone) avec position s'ils sont en ligne
+export async function driversLive() {
+  const { data, error } = await sb.rpc("drivers_live"); if (error) throw error; return data || [];
+}
+export const carLabel = d => [d?.modele, d?.plaque].filter(Boolean).join(" · ");
 export async function fetchSettings() {
   const { data, error } = await sb.from("settings").select("doc").eq("id", 1).maybeSingle();
   if (error) throw error; return data?.doc || {};
@@ -47,7 +56,9 @@ export function watchTable(table, load, cb, filter) {
   let t; const run = () => { clearTimeout(t); t = setTimeout(async () => { try { cb(await load()); } catch { } }, 150); };
   run();
   const opts = { event: "*", schema: "public", table }; if (filter) opts.filter = filter;
-  return sb.channel("w-" + table + "-" + Math.random().toString(36).slice(2, 7)).on("postgres_changes", opts, run).subscribe();
+  const ch = sb.channel("w-" + table + "-" + Math.random().toString(36).slice(2, 7)).on("postgres_changes", opts, run).subscribe();
+  ch.refresh = run;
+  return ch;
 }
 
 /* ---------- petits outils ---------- */
@@ -71,6 +82,7 @@ export const IC = {
   car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14v-5l-2-5H7l-2 5z"/><path d="M5 12h14"/><circle cx="8" cy="17" r="1.6"/><circle cx="16" cy="17" r="1.6"/></svg>',
   users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.6c2.3.1 4 1.6 4.5 4.4"/></svg>',
   sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
+  team: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 7.9 7.5 9.5 4.4-1.6 7.5-5.1 7.5-9.5V6z"/><circle cx="12" cy="10" r="2.4"/><path d="M8.3 16c.7-1.8 2-2.7 3.7-2.7s3 .9 3.7 2.7"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>',
   cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
   locate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
