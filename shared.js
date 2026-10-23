@@ -1,10 +1,34 @@
 // Code commun client + chauffeur
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-import { SUPABASE_URL, SUPABASE_KEY, DEFAULT_SETTINGS } from "./config.js";
+import { SUPABASE_URL, SUPABASE_KEY, DEFAULT_SETTINGS, VAPID_PUBLIC_KEY } from "./config.js";
 
 export const configured = !!(SUPABASE_URL && SUPABASE_KEY);
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
 export { DEFAULT_SETTINGS };
+
+/* ---------- notifications ---------- */
+export const isStandalone = () => window.navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)").matches;
+export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64ToBytes = s => { const p = "=".repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+export async function pushStatus() {
+  if (!pushSupported()) return "unsupported";
+  if (Notification.permission === "denied") return "denied";
+  try { const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); return sub && Notification.permission === "granted" ? "on" : "off"; } catch { return "off"; }
+}
+// Demande l'autorisation et enregistre l'appareil (à appeler depuis un toucher sur un bouton)
+export async function enablePush() {
+  if (!pushSupported()) throw new Error(isStandalone() ? "Les notifications ne sont pas disponibles sur ce téléphone." : "Installez d'abord l'appli sur l'écran d'accueil (Partager → Sur l'écran d'accueil), puis ouvrez-la depuis l'icône.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifications refusées. Vous pouvez les autoriser dans Réglages → Notifications.");
+  const reg = await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) });
+  const j = sub.toJSON();
+  const { error } = await sb.from("push_subscriptions").upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
+  if (error) throw new Error("Enregistrement impossible. Réessayez.");
+}
+
+/* ---------- Revolut ---------- */
+export const revolutLink = (tag, amount) => { const t = String(tag || "").trim().replace(/^@/, ""); return t ? `https://revolut.me/${encodeURIComponent(t)}${amount ? "?amount=" + Number(amount).toFixed(2) + "&currency=EUR" : ""}` : ""; };
 
 /* ---------- données ---------- */
 // Une réservation = colonnes (id, statut, client_uid) + détails dans doc
