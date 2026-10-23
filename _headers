@@ -1,0 +1,6 @@
+/sw.js
+  Cache-Control: no-cache
+/manifest.json
+  Content-Type: application/manifest+json
+/manifest-chauffeur.json
+  Content-Type: application/manifest+json

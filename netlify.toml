@@ -1,0 +1,4 @@
+[build]
+  publish = "."
+  # Crée les icônes PNG à partir du logo (script sans dépendance)
+  command = "node build-icons.js"

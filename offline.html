@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hors connexion · Transporteur</title>
+<meta name="theme-color" content="#0d0d0c">
+<style>
+  html,body{margin:0;height:100%}
+  body{background:#0d0d0c;color:#f6f5f1;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;
+    padding:env(safe-area-inset-top,0px) max(24px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(24px,env(safe-area-inset-left,0px));box-sizing:border-box}
+  .box{max-width:320px;display:flex;flex-direction:column;align-items:center;gap:16px}
+  svg{width:72px;height:auto}
+  h1{font-size:20px;margin:0;font-weight:600}
+  p{margin:0;color:#b9b7af;line-height:1.5}
+  button{font:inherit;font-weight:600;font-size:16px;border:0;border-radius:14px;background:#f6f5f1;color:#0d0d0c;padding:14px 22px;min-height:48px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="box">
+  <svg viewBox="0 0 330 140" aria-hidden="true"><g fill="currentColor"><polygon points="42,0 124,0 82,140 0,140"/><polygon points="145,0 227,0 185,140 103,140"/><polygon points="248,0 330,0 288,140 206,140"/></g></svg>
+  <h1>Pas de connexion internet</h1>
+  <p>Transporteur a besoin d'internet pour afficher la carte et vos courses. Vérifiez votre réseau, puis réessayez.</p>
+  <button type="button" onclick="location.reload()">Réessayer</button>
+</div>
+</body>
+</html>
