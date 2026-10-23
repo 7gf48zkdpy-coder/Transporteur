@@ -34,36 +34,65 @@
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC, tarifOf, priceFor,
   searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen,
-  pushStatus, enablePush, isStandalone, revolutLink } from "./shared.js";
+  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
 
-const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
-  form: { mode: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "" } };
+const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], drivers: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
+  form: { mode: null, driver: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "" } };
 
 /* ---------- carte ---------- */
 const map = createMap($("#map"));
-const M = { pick: null, drop: null, car: null };
+const M = { pick: null, drop: null, cars: {} };
 function placeMarker(key, kind, p) {
   if (!p) { if (M[key]) { M[key].remove(); M[key] = null; } return; }
   if (!M[key]) M[key] = new maplibregl.Marker({ element: markerEl(kind) }).setLngLat([p.lng, p.lat]).addTo(map);
   else M[key].setLngLat([p.lng, p.lat]);
 }
-const driver = () => ({ status: "off", ...(S.settings.driver || {}) });
-const driverPos = () => { const d = driver(); return d.status !== "off" && d.lat && (Date.now() - (d.at || 0) < 30 * 60000) ? { lat: d.lat, lng: d.lng } : null; };
+/* ---------- chauffeurs ---------- */
+const kmTo = (a, b) => { const r = x => x * Math.PI / 180, dLa = r(b.lat - a.lat), dLo = r(b.lng - a.lng); const h = Math.sin(dLa / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
+const online = () => S.drivers.filter(d => d.status !== "off" && d.lat != null);
+const freeDrivers = () => online().filter(d => d.status === "dispo");
+const byId = id => S.drivers.find(d => d.id === id);
+// Le chauffeur pour une course immédiate : celui choisi par le client, sinon le plus proche disponible
+function chosen() {
+  if (S.form.driver) { const d = byId(S.form.driver); return d && d.status === "dispo" && d.lat != null ? d : null; }
+  const ref = S.form.pickup, list = freeDrivers();
+  if (!list.length) return null;
+  return ref ? [...list].sort((a, b) => kmTo(a, ref) - kmTo(b, ref))[0] : list[0];
+}
+const driverPos = () => { const d = chosen(); return d ? { lat: d.lat, lng: d.lng } : null; };
+// Pendant une course : la voiture du chauffeur attribué
+const liveRide = () => S.rides.find(r => r.statut === "confirmee" && ["approche", "arrive", "abord"].includes(r.phase) && r.driverId);
 function syncMap(fit) {
   placeMarker("pick", "pick", S.form.pickup);
   placeMarker("drop", "drop", S.form.dropoff);
-  placeMarker("car", "car", driverPos());
+  const lr = liveRide(), cars = lr ? online().filter(d => d.id === lr.driverId) : online();
+  for (const id of Object.keys(M.cars)) if (!cars.some(d => d.id === id)) { M.cars[id].remove(); delete M.cars[id]; }
+  for (const d of cars) {
+    if (!M.cars[d.id]) { const el = markerEl("car"); el.title = d.prenom; M.cars[d.id] = new maplibregl.Marker({ element: el }).setLngLat([d.lng, d.lat]).addTo(map); }
+    else M.cars[d.id].setLngLat([d.lng, d.lat]);
+    M.cars[d.id].getElement().style.opacity = d.status === "dispo" || lr ? "1" : ".55";
+  }
   setRouteLine(map, S.trip?.geometry || null);
   if (fit) fitTo(map, [S.form.pickup, S.form.dropoff, S.form.dropoff ? null : driverPos()]);
 }
 function chip() {
-  const d = driver();
-  const [cls, txt] = d.status === "dispo" ? ["dispo", "Chauffeur disponible"] : d.status === "course" ? ["course", "Chauffeur en course"] : ["off", "Chauffeur hors ligne"];
+  const free = freeDrivers().length, busy = online().length - free;
+  const [cls, txt] = free ? ["dispo", free > 1 ? free + " chauffeurs disponibles" : "Chauffeur disponible"] : busy ? ["course", busy > 1 ? "Chauffeurs en course" : "Chauffeur en course"] : ["off", "Chauffeurs hors ligne"];
   $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}`;
 }
+const driversSig = () => S.drivers.map(d => d.id + d.status + d.prenom + d.modele).join();
+async function refreshDrivers() {
+  try {
+    const before = driversSig(); S.drivers = await driversLive();
+    if (S.form.driver && !byId(S.form.driver)) S.form.driver = null;
+    syncMap(false); chip();
+    if (before !== driversSig() && !typing()) { if (S.form.pickup && S.form.dropoff && !S.quoting) computeQuote(); else render(); }
+  } catch { }
+}
+const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
 $("#locbtn").addEventListener("click", async () => {
   try { const p = await getPosition(); map.easeTo({ center: [p.lng, p.lat], zoom: 15 });
     if (!S.form.pickup) { S.form.pickup = await reverse(p.lat, p.lng); S.form.pickupText = S.form.pickup.label; afterPlaces(); } }
@@ -71,7 +100,7 @@ $("#locbtn").addEventListener("click", async () => {
 });
 
 /* ---------- calcul du prix ---------- */
-const mode = () => { if (!S.form.mode) S.form.mode = driver().status === "dispo" ? "now" : "avance"; return S.form.mode; };
+const mode = () => { if (!S.form.mode) S.form.mode = freeDrivers().length ? "now" : "avance"; return S.form.mode; };
 let quoteSeq = 0;
 async function computeQuote() {
   const f = S.form; S.trip = null; S.approach = null; S.err = "";
@@ -80,7 +109,7 @@ async function computeQuote() {
   try {
     const trip = await route(f.pickup, f.dropoff);
     let approach = null; const dp = driverPos();
-    if (mode() === "now" && driver().status === "dispo" && dp) approach = await route(dp, f.pickup);
+    if (mode() === "now" && dp) approach = await route(dp, f.pickup);
     if (seq !== quoteSeq) return;
     S.trip = trip; S.approach = approach;
   } catch { if (seq === quoteSeq) S.err = "Impossible de calculer l'itinéraire pour le moment. Vérifiez les adresses ou réessayez."; }
@@ -139,8 +168,11 @@ function ibanBlock() {
 }
 
 function mainView() {
-  const f = S.form, d = driver(), m = mode(), canNow = d.status === "dispo";
+  const f = S.form, m = mode(), pick = f.driver ? byId(f.driver) : null;
+  const canNow = !!chosen(), anyBusy = online().some(x => x.status === "course");
+  const d = { status: canNow ? "dispo" : (pick ? (pick.status === "course" ? "course" : "off") : anyBusy ? "course" : "off") };
   const q = quote(), blocked = m === "now" && !canNow;
+  const who = pick ? esc(pick.prenom) : "Le transporteur";
   const live = S.rides.filter(r => r.statut === "confirmee" || r.statut === "en_attente").sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const past = S.rides.filter(r => !live.includes(r)).sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
   const nowSub = canNow ? `<span class="dot d-dispo"></span>Disponible` : d.status === "course" ? `<span class="dot d-course"></span>En course` : `<span class="dot d-off"></span>Hors ligne`;
@@ -155,7 +187,8 @@ function mainView() {
       <button type="button" class="tile" data-mode="now" aria-pressed="${m === "now"}">${IC.bolt}Maintenant<small>${nowSub}</small></button>
       <button type="button" class="tile" data-mode="avance" aria-pressed="${m === "avance"}">${IC.cal}Plus tard<small>Date et heure</small></button>
     </div>
-    ${blocked ? `<div class="msg warn">${d.status === "course" ? "<b>Le transporteur est actuellement en course.</b>" : "<b>Le transporteur est hors ligne.</b>"} Choisissez « Plus tard » pour réserver.</div>` : ""}
+    ${driverPicker(m)}
+    ${blocked ? `<div class="msg warn">${d.status === "course" ? `<b>${who} est actuellement en course.</b>` : `<b>${who} est hors ligne.</b>`} Choisissez « Plus tard »${pick ? " ou un autre chauffeur" : ""} pour réserver.</div>` : ""}
     <div class="route">
       <span class="pin"></span>
       <div class="ac" id="ac-pickup"><div class="inrow"><input id="pickup" placeholder="Adresse de prise en charge" autocomplete="off" value="${esc(f.pickupText)}" aria-label="Lieu de prise en charge"><button type="button" id="mypos" aria-label="Utiliser ma position">${IC.locate}</button></div><div class="sugg" hidden></div></div>
@@ -174,7 +207,7 @@ function mainView() {
     <div class="quote"><div><h3>Prix estimé</h3><p class="muted small">${q.km} km · environ ${q.min} min</p></div><span class="qprice">${eur(q.prix)}</span></div>
     ${m === "now" && q.apMin != null ? (q.horsZone
       ? `<div class="msg warn"><b>Transporteur trop loin de votre prise en charge</b> (environ ${q.apMin} min). Son trajet jusqu'à vous est inclus : ${eur(q.prix - q.prixTrajet)}.</div>`
-      : `<div class="msg ok">Votre chauffeur peut être là dans <b>environ ${q.apMin} min</b>.</div>`) : ""}
+      : `<div class="msg ok">${chosen() ? esc(chosen().prenom) : "Votre chauffeur"} peut être là dans <b>environ ${q.apMin} min</b>.</div>`) : ""}
   </section>` : ""}
   <section class="panel stack">
     ${st("Passagers et bagages")}
@@ -197,6 +230,28 @@ function mainView() {
   <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
 }
 
+// Choix du chauffeur : « le plus proche » par défaut, ou un chauffeur en particulier
+function driverPicker(m) {
+  if (S.drivers.length < 2) return "";
+  const f = S.form, now = m === "now";
+  const state = x => x.status === "dispo" && x.lat != null ? ["dispo", "Disponible"] : x.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
+  const btn = (id, title, sub, dot, disabled) => `<button type="button" class="drv" data-driver="${id}" aria-pressed="${(f.driver || "") === id}" ${disabled ? "disabled" : ""}>
+    <span>${dot ? `<span class="dot d-${dot}"></span> ` : ""}${title}</span><small>${sub}</small></button>`;
+  return `<div class="stack" style="gap:6px"><span class="small muted">Chauffeur</span><div class="drvs" role="group" aria-label="Choisir un chauffeur">
+    ${btn("", "Le plus proche", now ? (freeDrivers().length ? "Le plus rapide" : "Aucun disponible") : "Premier disponible", "", false)}
+    ${S.drivers.map(x => { const [dot, txt] = state(x); return btn(x.id, esc(x.prenom), esc(now && dot !== "dispo" ? txt : x.modele || txt), now ? dot : "", now && dot !== "dispo"); }).join("")}
+  </div></div>`;
+}
+function driverBox(r) {
+  const c = r.chauffeur;
+  if (!c) return r.statut === "en_attente" && r.requestedDriver && byId(r.requestedDriver) ? `<p class="small muted">Demande envoyée à <b>${esc(byId(r.requestedDriver).prenom)}</b>.</p>` : "";
+  if (r.statut !== "confirmee" && r.statut !== "terminee") return "";
+  const tel = String(c.tel || "").replace(/\s/g, "");
+  return `<div class="carline"><div style="flex:1;min-width:0"><div><b>${esc(c.prenom)}</b>${c.modele ? " · " + esc(c.modele) : ""}</div>${c.plaque ? `<span class="plate">${esc(c.plaque)}</span>` : ""}</div>
+    ${tel && r.statut === "confirmee" ? `<a class="navbtn" href="tel:${esc(tel)}" style="flex:none">Appeler</a>` : ""}</div>`;
+}
+// Paiement par carte : sur le Revolut du chauffeur qui a accepté (sinon celui du compte principal)
+const revtagOf = r => r?.chauffeur?.revtag || S.settings.revtag || "";
 function pushCard() {
   if (S.push === "on" || S.push === "denied") return "";
   const installed = isStandalone();
@@ -208,18 +263,21 @@ function pushCard() {
   </section>`;
 }
 function payCardBtn(r) {
-  const s = { ...DEFAULT_SETTINGS, ...S.settings }, link = revolutLink(s.revtag, r.prix);
-  if (r.paiement !== "cb" || !link || r.statut === "annulee" || r.paye) return "";
+  const link = revolutLink(revtagOf(r), r.prix);
+  if (r.paiement !== "cb" || r.statut === "annulee" || r.paye) return "";
+  if (r.statut === "en_attente") return revolutLink(S.settings.revtag) ? `<p class="small muted">Le bouton « Payer par carte » apparaîtra dès qu'un chauffeur aura accepté.</p>` : "";
+  if (!link) return "";
   return `<a class="navbtn" style="background:var(--btn);color:var(--btn-ink);border-color:var(--btn)" href="${link}" target="_blank" rel="noopener">Payer ${r.prix ? eur(r.prix) + " " : ""}par carte (Revolut)</a>`;
 }
 function rideCard(r) {
   return `<article class="ride">
     <div class="between"><span class="when">${r.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(r.date)} · ${esc(r.time)}</span><span class="pill s-${r.statut}">${STATUS[r.statut] || r.statut}</span></div>
+    ${driverBox(r)}
     <div class="route"><span class="pin"></span><span>${esc(r.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(r.arrivee?.label)}</span></div>
-    <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "CB virement" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
-    ${r.statut === "confirmee" ? (r.phase === "arrive" ? `<div class="msg ok"><b>Votre chauffeur est arrivé 📍</b> Il vous attend : 6 minutes d'attente offertes.</div>`
+    <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "Carte" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
+    ${r.statut === "confirmee" ? (r.phase === "arrive" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est arrivé 📍</b> Il vous attend : 6 minutes d'attente offertes.</div>`
       : r.phase === "abord" ? `<div class="msg ok"><b>Bonne route !</b> Vous êtes en route vers votre destination.</div>`
-      : r.phase === "approche" ? `<div class="msg ok"><b>Votre chauffeur est en route.</b> Suivez sa voiture sur la carte.</div>` : "") : ""}
+      : r.phase === "approche" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est en route.</b> Suivez sa voiture sur la carte.</div>` : "") : ""}
     ${r.statut === "confirmee" || r.statut === "en_attente" ? `<button class="ghost sm" data-share="${r.id}">Partager le suivi avec un proche</button>` : ""}
     ${payCardBtn(r)}
     ${r.statut === "en_attente" ? `<div><button class="link" data-cancel="${r.id}">Annuler ma demande</button></div>` : ""}
@@ -231,8 +289,8 @@ function confirmBox() {
   const s = { ...DEFAULT_SETTINGS, ...S.settings };
   return `<section class="panel stack" style="box-shadow:inset 0 0 0 2px var(--live),var(--shadow)">
     <div class="between"><h2>Demande envoyée</h2><span class="pill s-${r.statut}">${STATUS[r.statut]}</span></div>
-    <p>Le chauffeur a reçu votre demande. Vous verrez « Confirmée » dès qu'il l'accepte.</p>
-    ${r.paiement === "cb" ? (revolutLink(s.revtag) ? `<p class="small">Vous pourrez payer par carte ou Apple Pay avec le bouton <b>« Payer par carte »</b> sur votre course.</p>` : `<p class="small">Pour le virement, indiquez la référence <b class="mono">${esc(r.ref)}</b>.</p><div class="actions"><button class="ghost sm" data-copy="${esc(s.iban)}">Copier l'IBAN</button><button class="ghost sm" data-copy="${esc(r.ref)}">Copier la référence</button></div>`) : ""}
+    <p>${r.requestedDriver && byId(r.requestedDriver) ? esc(byId(r.requestedDriver).prenom) + " a reçu votre demande." : "Votre demande est envoyée au chauffeur le plus proche."} Vous verrez « Confirmée » dès qu'un chauffeur l'accepte.</p>
+    ${r.paiement === "cb" ? (revolutLink(s.revtag) ? `<p class="small">Vous pourrez payer par carte ou Apple Pay avec le bouton <b>« Payer par carte »</b>, dès que votre chauffeur aura accepté.</p>` : `<p class="small">Pour le virement, indiquez la référence <b class="mono">${esc(r.ref)}</b>.</p><div class="actions"><button class="ghost sm" data-copy="${esc(s.iban)}">Copier l'IBAN</button><button class="ghost sm" data-copy="${esc(r.ref)}">Copier la référence</button></div>`) : ""}
     <button class="ghost" id="close-conf">OK</button></section>`;
 }
 
@@ -268,6 +326,7 @@ function bindMain() {
     catch (e) { toast(e.message); }
   });
   on("[data-mode]", "click", e => { S.form.mode = e.currentTarget.dataset.mode; S.err = ""; computeQuote(); });
+  on("[data-driver]", "click", e => { S.form.driver = e.currentTarget.dataset.driver || null; S.err = ""; computeQuote(); });
   on("#date,#time", "change", e => { S.form[e.target.id] = e.target.value; });
   on("#note", "input", e => { S.form.note = e.target.value; });
   on("[data-step]", "click", e => { const [k, d] = e.currentTarget.dataset.step.split(":"); const max = k === "passagers" ? 8 : 10, min = k === "passagers" ? 1 : 0; S.form[k] = Math.min(max, Math.max(min, S.form[k] + Number(d))); e.currentTarget.parentElement.querySelector("output").textContent = S.form[k]; });
@@ -301,7 +360,7 @@ function bindMain() {
 async function send() {
   const f = S.form, m = mode(), q = quote();
   if (!f.pickup || !f.dropoff || !q) return;
-  if (m === "now" && driver().status !== "dispo") { S.err = "Le transporteur n'est plus disponible pour une course immédiate. Choisissez « Plus tard »."; return render(); }
+  if (m === "now" && !chosen()) { S.err = "Aucun chauffeur n'est disponible pour une course immédiate. Choisissez « Plus tard »."; return render(); }
   const date = m === "now" ? todayISO() : f.date, time = m === "now" ? nowHM() : f.time;
   if (m === "avance") {
     if (!date || !time) { S.err = "Choisissez la date et l'heure de prise en charge."; return render(); }
@@ -310,7 +369,7 @@ async function send() {
   S.sending = true; S.err = ""; render();
   const r = ref();
   try {
-    const { error } = await sb.from("bookings").insert({ statut: "en_attente", doc: {
+    const { error } = await sb.from("bookings").insert({ statut: "en_attente", client_uid: S.uid, requested_driver: f.driver || null, doc: {
       ref: r, clientPrenom: S.me.prenom, clientNom: S.me.nom, clientTel: S.me.tel,
       mode: m === "now" ? "immediat" : "avance", date, time,
       depart: { label: f.pickup.label, lat: f.pickup.lat, lng: f.pickup.lng },
@@ -331,13 +390,11 @@ async function send() {
 /* ---------- démarrage ---------- */
 if (!configured) { notConfiguredScreen($("#app")); }
 else {
-  const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  watchSettings(doc => {
-    const before = JSON.stringify(S.settings.driver || {});
-    S.settings = doc || {};
-    syncMap(false); chip();
-    if (before !== JSON.stringify(S.settings.driver || {}) && !typing()) render();
-  });
+  watchSettings(doc => { S.settings = doc || {}; });
+  // Position et statut des chauffeurs : mis à jour toutes les 10 secondes
+  refreshDrivers().then(() => syncMap(true));
+  setInterval(() => { if (document.visibilityState === "visible") refreshDrivers(); }, 10000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshDrivers(); });
   let started = false;
   async function start(user) {
     if (started) return; started = true; S.uid = user.id;
