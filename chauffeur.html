@@ -327,11 +327,29 @@ function coursesView() {
     ${on ? `<p class="muted small">Position GPS ${d.at ? "envoyée " + ago(d.at) : "en attente…"}. Gardez cette page ouverte pendant votre service.</p>` : ""}
   </section>
   ${!S.row.modele || !S.row.plaque ? `<div class="msg warn">Ajoutez votre <b>modèle de voiture</b> et votre <b>plaque</b> dans Réglages : vos clients les verront.</div>` : ""}
-  ${isAdmin() ? "" : partCard()}
+  ${isAdmin() ? (S.team.some(d => !d.is_admin) ? gainsCard() : "") : partCard()}
   <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${st.today.length}</div><div class="k">faite${st.today.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(st.today))}</div><div class="k">gagné aujourd'hui</div></div></div>
   <p class="muted small center">Ce mois-ci : <b>${st.month.length}</b> course${st.month.length > 1 ? "s" : ""} · <b>${eur(sum(st.month))}</b> · Total : ${st.done.length} course${st.done.length > 1 ? "s" : ""} · ${eur(sum(st.done))}</p>
   <div class="filters">${filters.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
   ${list.length ? list.map(rideCard).join("") : `<div class="empty">Aucune course ici. Les demandes arrivent ici dès qu'un client réserve.</div>`}`;
+}
+// Ce que le compte principal gagne sur ses chauffeurs (sa part sur leurs courses)
+function gainsEquipe() {
+  const autres = S.team.filter(d => !d.is_admin);
+  const ids = new Set(autres.map(d => d.id));
+  const faites = S.bookings.filter(b => b.statut === "terminee" && ids.has(b.driverId) && Number(b.commission) > 0);
+  const total = faites.reduce((t, b) => t + Number(b.commission), 0);
+  const recu = autres.reduce((t, d) => t + (Number(d.commission_payee) || 0), 0);
+  const parMois = m => faites.filter(b => doneDay(b).slice(0, 7) === m).reduce((t, b) => t + Number(b.commission), 0);
+  const ici = todayISO().slice(0, 7), d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+  const avant = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  return { total, recu: Math.min(recu, total), reste: Math.max(0, total - recu), mois: parMois(ici), moisAvant: parMois(avant), nb: faites.length };
+}
+function gainsCard() {
+  const g = gainsEquipe();
+  return `<section class="panel stack"><div class="between"><h3>Mes gains sur l'équipe</h3><span class="small muted">${pctOf()} % par course</span></div>
+    <div class="stats"><div class="stat"><div class="v" style="font-size:24px">${eur(g.recu)}</div><div class="k">reçu</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.reste)}</div><div class="k">à recevoir</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.total)}</div><div class="k">total gagné</div></div></div>
+    <p class="muted small">Ce mois-ci : <b>${eur(g.mois)}</b> · Mois dernier : ${eur(g.moisAvant)} · ${g.nb} course${g.nb > 1 ? "s" : ""} de tes chauffeurs</p></section>`;
 }
 function partCard() {
   const p = partOf(S.uid); if (!p.du && !p.reste) return "";
@@ -417,6 +435,7 @@ function equipeView() {
   return `<h2>Mon équipe</h2>
   <p class="muted small">Chaque chauffeur se connecte avec son e-mail et son mot de passe sur l'espace chauffeur. Il voit seulement ses courses. Les clients paient sur son propre Revolut.</p>
   ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé|réactivé|désactivé|refusée/i.test(S.teamMsg) ? "ok" : "err"}" role="status">${esc(S.teamMsg)}</div>` : ""}
+  ${gainsCard()}
   <form id="eq-form" class="panel stack" novalidate><h3>Réglages de l'équipe</h3>
     <div class="row"><label class="f" for="eq-max">Nombre maximum de chauffeurs<input id="eq-max" class="mono" type="number" inputmode="numeric" min="1" max="50" value="${MAX_EQUIPE}"></label>
     <label class="f" for="eq-pct">Ta part sur chaque course (%)<input id="eq-pct" class="mono" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${pctOf()}"></label></div>
