@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Transporteur VTC</title>
+<meta name="description" content="Réservez votre chauffeur privé Transporteur.">
+<meta name="theme-color" content="#0d0d0c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Transporteur">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="pwa.js" defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="band"><div class="in" id="band"></div></div>
+<div class="mapbox">
+  <div class="map" id="map"></div>
+  <div class="chip" id="dchip"><span class="dot d-off"></span>Chargement…</div>
+  <button class="locbtn" id="locbtn" aria-label="Me localiser"></button>
+</div>
+<div class="sheet"><div class="wrap"><main id="app" class="stack"><div class="loading">Chargement…</div></main></div></div>
+
+<script type="module">
+import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC, tarifOf, priceFor,
+  searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen } from "./shared.js";
+
+$("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
+$("#locbtn").innerHTML = IC.locate;
+
+const S = { uid: null, me: undefined, settings: {}, rides: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
+  form: { mode: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "" } };
+
+/* ---------- carte ---------- */
+const map = createMap($("#map"));
+const M = { pick: null, drop: null, car: null };
+function placeMarker(key, kind, p) {
+  if (!p) { if (M[key]) { M[key].remove(); M[key] = null; } return; }
+  if (!M[key]) M[key] = new maplibregl.Marker({ element: markerEl(kind) }).setLngLat([p.lng, p.lat]).addTo(map);
+  else M[key].setLngLat([p.lng, p.lat]);
+}
+const driver = () => ({ status: "off", ...(S.settings.driver || {}) });
+const driverPos = () => { const d = driver(); return d.status !== "off" && d.lat && (Date.now() - (d.at || 0) < 30 * 60000) ? { lat: d.lat, lng: d.lng } : null; };
+function syncMap(fit) {
+  placeMarker("pick", "pick", S.form.pickup);
+  placeMarker("drop", "drop", S.form.dropoff);
+  placeMarker("car", "car", driverPos());
+  setRouteLine(map, S.trip?.geometry || null);
+  if (fit) fitTo(map, [S.form.pickup, S.form.dropoff, S.form.dropoff ? null : driverPos()]);
+}
+function chip() {
+  const d = driver();
+  const [cls, txt] = d.status === "dispo" ? ["dispo", "Chauffeur disponible"] : d.status === "course" ? ["course", "Chauffeur en course"] : ["off", "Chauffeur hors ligne"];
+  $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}`;
+}
+$("#locbtn").addEventListener("click", async () => {
+  try { const p = await getPosition(); map.easeTo({ center: [p.lng, p.lat], zoom: 15 });
+    if (!S.form.pickup) { S.form.pickup = await reverse(p.lat, p.lng); S.form.pickupText = S.form.pickup.label; afterPlaces(); } }
+  catch (e) { toast(e.message); }
+});
+
+/* ---------- calcul du prix ---------- */
+const mode = () => { if (!S.form.mode) S.form.mode = driver().status === "dispo" ? "now" : "avance"; return S.form.mode; };
+let quoteSeq = 0;
+async function computeQuote() {
+  const f = S.form; S.trip = null; S.approach = null; S.err = "";
+  if (!f.pickup || !f.dropoff) { render(); syncMap(true); return; }
+  const seq = ++quoteSeq; S.quoting = true; render();
+  try {
+    const trip = await route(f.pickup, f.dropoff);
+    let approach = null; const dp = driverPos();
+    if (mode() === "now" && driver().status === "dispo" && dp) approach = await route(dp, f.pickup);
+    if (seq !== quoteSeq) return;
+    S.trip = trip; S.approach = approach;
+  } catch { if (seq === quoteSeq) S.err = "Impossible de calculer l'itinéraire pour le moment. Vérifiez les adresses ou réessayez."; }
+  if (seq === quoteSeq) { S.quoting = false; render(); syncMap(true); }
+}
+function quote() {
+  if (!S.trip) return null;
+  const T = tarifOf(S.settings), prixTrajet = priceFor(S.trip.km, T);
+  const a = S.approach, horsZone = !!(a && a.min > T.approche);
+  return { km: S.trip.km, min: S.trip.min, prixTrajet, prix: horsZone ? priceFor(S.trip.km + a.km, T) : prixTrajet,
+    apMin: a?.min ?? null, apKm: a?.km ?? null, horsZone };
+}
+function afterPlaces() { computeQuote(); }
+
+/* ---------- écrans ---------- */
+function render() {
+  chip();
+  $("#who").textContent = S.me?.prenom ? "Bonjour " + S.me.prenom : "";
+  const app = $("#app");
+  if (S.me === undefined) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
+  if (!S.me || S.editing) { app.innerHTML = signupView(); bindSignup(); return; }
+  app.innerHTML = mainView();
+  bindMain();
+}
+
+function signupView() {
+  const m = S.me || {};
+  return `<form id="signup" class="panel stack" novalidate>
+    <h2>${S.editing ? "Mes informations" : "Bienvenue"}</h2>
+    <p class="muted">${S.editing ? "Modifiez vos coordonnées." : "Créez votre compte en quelques secondes pour réserver votre chauffeur."}</p>
+    <div class="row"><label class="f" for="s-prenom">Prénom<input id="s-prenom" autocomplete="given-name" value="${esc(m.prenom || "")}"></label>
+    <label class="f" for="s-nom">Nom<input id="s-nom" autocomplete="family-name" value="${esc(m.nom || "")}"></label></div>
+    <label class="f" for="s-tel">Téléphone<input id="s-tel" type="tel" autocomplete="tel" placeholder="06 12 34 56 78" value="${esc(m.tel || "")}"></label>
+    ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+    <button class="big" type="submit">${S.editing ? "Enregistrer" : "Créer mon compte"}</button>
+    ${S.editing ? `<button type="button" class="ghost" id="s-cancel">Annuler</button>` : ""}
+  </form>`;
+}
+function bindSignup() {
+  $("#signup").addEventListener("submit", async e => {
+    e.preventDefault();
+    const prenom = $("#s-prenom").value.trim(), nom = $("#s-nom").value.trim(), tel = $("#s-tel").value.trim();
+    if (!prenom || !nom) { S.err = "Indiquez votre prénom et votre nom."; return render(); }
+    if (tel.replace(/\D/g, "").length < 9) { S.err = "Indiquez un numéro de téléphone valide."; return render(); }
+    try { const { error } = await sb.from("clients").upsert({ id: S.uid, prenom, nom, tel }); if (error) throw error;
+      const was = S.me; S.me = { ...(S.me || {}), prenom, nom, tel }; S.err = ""; S.editing = false; render(); toast(was ? "Informations enregistrées" : "Compte créé"); }
+    catch { S.err = "Enregistrement impossible. Vérifiez votre connexion et réessayez."; render(); }
+  });
+  $("#s-cancel")?.addEventListener("click", () => { S.editing = false; S.err = ""; render(); });
+}
+
+function ibanBlock() {
+  const s = { ...DEFAULT_SETTINGS, ...S.settings };
+  if (!s.iban) return `<p class="muted small">Le chauffeur vous donnera ses coordonnées bancaires.</p>`;
+  return `<div class="msg gold stack" style="gap:4px"><span class="small">Virement à <b>${esc(s.titulaire)}</b>${s.banque ? " · " + esc(s.banque) : ""}</span><span class="iban">${esc(s.iban)}</span>${s.bic ? `<span class="small mono muted">BIC ${esc(s.bic)}</span>` : ""}</div>`;
+}
+
+function mainView() {
+  const f = S.form, d = driver(), m = mode(), canNow = d.status === "dispo";
+  const q = quote(), blocked = m === "now" && !canNow;
+  const live = S.rides.filter(r => r.statut === "confirmee" || r.statut === "en_attente").sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const past = S.rides.filter(r => !live.includes(r)).sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+  const nowSub = canNow ? `<span class="dot d-dispo"></span>Disponible` : d.status === "course" ? `<span class="dot d-course"></span>En course` : `<span class="dot d-off"></span>Hors ligne`;
+  let n = 0; const st = t => `<div class="step"><span class="num">${++n}</span><h3>${t}</h3></div>`;
+  return `
+  ${S.lastRef ? confirmBox() : ""}
+  ${live.length ? `<section class="stack"><h3>Mes courses en cours</h3>${live.map(rideCard).join("")}</section>` : ""}
+  <section class="panel stack">
+    <h2>Où allez-vous ?</h2>
+    <div class="tiles" role="group" aria-label="Quand">
+      <button type="button" class="tile" data-mode="now" aria-pressed="${m === "now"}">${IC.bolt}Maintenant<small>${nowSub}</small></button>
+      <button type="button" class="tile" data-mode="avance" aria-pressed="${m === "avance"}">${IC.cal}Plus tard<small>Date et heure</small></button>
+    </div>
+    ${blocked ? `<div class="msg warn">${d.status === "course" ? "<b>Le transporteur est actuellement en course.</b>" : "<b>Le transporteur est hors ligne.</b>"} Choisissez « Plus tard » pour réserver.</div>` : ""}
+    <div class="route">
+      <span class="pin"></span>
+      <div class="ac" id="ac-pickup"><div class="inrow"><input id="pickup" placeholder="Adresse de prise en charge" autocomplete="off" value="${esc(f.pickupText)}" aria-label="Lieu de prise en charge"><button type="button" id="mypos" aria-label="Utiliser ma position">${IC.locate}</button></div><div class="sugg" hidden></div></div>
+      <span class="line"></span><span></span>
+      <span class="pin end"></span>
+      <div class="ac" id="ac-dropoff"><input id="dropoff" placeholder="Adresse de destination" autocomplete="off" value="${esc(f.dropoffText)}" aria-label="Lieu de dépose"><div class="sugg" hidden></div></div>
+    </div>
+    <div class="row" ${m === "now" ? "hidden" : ""}>
+      <label class="f" for="date">Date<input id="date" type="date" min="${todayISO()}" value="${esc(f.date)}"></label>
+      <label class="f" for="time">Heure<input id="time" type="time" step="300" value="${esc(f.time)}"></label>
+    </div>
+  </section>
+  ${blocked ? "" : `
+  ${S.quoting ? `<div class="panel center muted">Calcul de l'itinéraire…</div>` : q ? `
+  <section class="panel stack">
+    <div class="quote"><div><h3>Prix estimé</h3><p class="muted small">${q.km} km · environ ${q.min} min</p></div><span class="qprice">${eur(q.prix)}</span></div>
+    ${m === "now" && q.apMin != null ? (q.horsZone
+      ? `<div class="msg warn"><b>Transporteur trop loin de votre prise en charge</b> (environ ${q.apMin} min). Son trajet jusqu'à vous est inclus : ${eur(q.prix - q.prixTrajet)}.</div>`
+      : `<div class="msg ok">Votre chauffeur peut être là dans <b>environ ${q.apMin} min</b>.</div>`) : ""}
+  </section>` : ""}
+  <section class="panel stack">
+    ${st("Passagers et bagages")}
+    <div class="counters">
+      <div class="counter"><span>Passagers</span><div class="stepper"><button type="button" data-step="passagers:-1" aria-label="Un passager de moins">−</button><output>${f.passagers}</output><button type="button" data-step="passagers:1" aria-label="Un passager de plus">+</button></div></div>
+      <div class="counter"><span>Bagages</span><div class="stepper"><button type="button" data-step="bagages:-1" aria-label="Un bagage de moins">−</button><output>${f.bagages}</output><button type="button" data-step="bagages:1" aria-label="Un bagage de plus">+</button></div></div>
+    </div>
+    ${st("Paiement")}
+    <div class="choice">
+      <label><input type="radio" name="pay" value="cb" ${f.paiement === "cb" ? "checked" : ""}><span><b>Carte bancaire</b><small>Par virement</small></span></label>
+      <label><input type="radio" name="pay" value="especes" ${f.paiement === "especes" ? "checked" : ""}><span><b>Espèces</b><small>Au chauffeur</small></span></label>
+    </div>
+    ${f.paiement === "cb" ? ibanBlock() : ""}
+    <details class="inline" ${f.note ? "open" : ""}><summary>+ Ajouter un message pour le chauffeur</summary><textarea id="note" style="margin-top:8px" placeholder="Numéro de vol, code d'accès, siège enfant…" aria-label="Message pour le chauffeur">${esc(f.note)}</textarea></details>
+  </section>
+  ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+  <button class="big" id="send" ${!q || S.sending ? "disabled" : ""}>${S.sending ? "Envoi…" : q ? "Réserver · " + eur(q.prix) : "Indiquez les deux adresses"}</button>
+  <div class="gift"><span class="n">6 min</span><span>d'attente <b>offertes</b> à la prise en charge</span></div>`}
+  ${past.length ? `<details class="more"><summary>Historique (${past.length})</summary><div class="body stack">${past.map(rideCard).join("")}</div></details>` : ""}
+  <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
+}
+
+function rideCard(r) {
+  return `<article class="ride">
+    <div class="between"><span class="when">${r.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(r.date)} · ${esc(r.time)}</span><span class="pill s-${r.statut}">${STATUS[r.statut] || r.statut}</span></div>
+    <div class="route"><span class="pin"></span><span>${esc(r.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(r.arrivee?.label)}</span></div>
+    <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "CB virement" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
+    ${r.statut === "confirmee" && r.mode === "immediat" ? `<div class="msg ok">Votre chauffeur est en route. Suivez sa voiture sur la carte.</div>` : ""}
+    ${r.statut === "en_attente" ? `<div><button class="link" data-cancel="${r.id}">Annuler ma demande</button></div>` : ""}
+    <p class="muted small mono">Réf. ${esc(r.ref)}</p>
+  </article>`;
+}
+function confirmBox() {
+  const r = S.rides.find(x => x.ref === S.lastRef); if (!r) return "";
+  const s = { ...DEFAULT_SETTINGS, ...S.settings };
+  return `<section class="panel stack" style="box-shadow:inset 0 0 0 2px var(--live),var(--shadow)">
+    <div class="between"><h2>Demande envoyée</h2><span class="pill s-${r.statut}">${STATUS[r.statut]}</span></div>
+    <p>Le chauffeur a reçu votre demande. Vous verrez « Confirmée » dès qu'il l'accepte.</p>
+    ${r.paiement === "cb" ? `<p class="small">Pour le virement, indiquez la référence <b class="mono">${esc(r.ref)}</b>.</p><div class="actions"><button class="ghost sm" data-copy="${esc(s.iban)}">Copier l'IBAN</button><button class="ghost sm" data-copy="${esc(r.ref)}">Copier la référence</button></div>` : ""}
+    <button class="ghost" id="close-conf">OK</button></section>`;
+}
+
+/* ---------- interactions ---------- */
+function bindAC(key) {
+  const box = $("#ac-" + key), input = $("#" + key), list = box.querySelector(".sugg");
+  let t, seq = 0;
+  input.addEventListener("input", () => {
+    S.form[key + "Text"] = input.value;
+    if (S.form[key]) { S.form[key] = null; S.trip = null; syncMap(false); const b = $("#send"); if (b) { b.disabled = true; b.textContent = "Indiquez les deux adresses"; } }
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const my = ++seq;
+      try {
+        const res = await searchPlaces(input.value, S.form.pickup || driverPos());
+        if (my !== seq) return;
+        if (!res.length) { list.hidden = true; return; }
+        list.innerHTML = res.map((p, i) => `<button type="button" data-i="${i}">${esc(p.main)}<small>${esc(p.sub)}</small></button>`).join("");
+        list.hidden = false;
+        list.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+          const p = res[+b.dataset.i]; S.form[key] = p; S.form[key + "Text"] = p.label; list.hidden = true; afterPlaces();
+        }));
+      } catch { list.hidden = true; }
+    }, 300);
+  });
+  input.addEventListener("blur", () => setTimeout(() => list.hidden = true, 200));
+}
+function bindMain() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  bindAC("pickup"); bindAC("dropoff");
+  $("#mypos")?.addEventListener("click", async () => {
+    try { toast("Localisation…"); const p = await getPosition(); S.form.pickup = await reverse(p.lat, p.lng); S.form.pickupText = S.form.pickup.label; afterPlaces(); }
+    catch (e) { toast(e.message); }
+  });
+  on("[data-mode]", "click", e => { S.form.mode = e.currentTarget.dataset.mode; S.err = ""; computeQuote(); });
+  on("#date,#time", "change", e => { S.form[e.target.id] = e.target.value; });
+  on("#note", "input", e => { S.form.note = e.target.value; });
+  on("[data-step]", "click", e => { const [k, d] = e.currentTarget.dataset.step.split(":"); const max = k === "passagers" ? 8 : 10, min = k === "passagers" ? 1 : 0; S.form[k] = Math.min(max, Math.max(min, S.form[k] + Number(d))); e.currentTarget.parentElement.querySelector("output").textContent = S.form[k]; });
+  on("input[name=pay]", "change", e => { S.form.paiement = e.target.value; render(); });
+  on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
+  on("#close-conf", "click", () => { S.lastRef = null; render(); });
+  on("#edit", "click", () => { S.editing = true; render(); });
+  on("[data-cancel]", "click", async e => {
+    const b = e.currentTarget; if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Confirmer l'annulation"; return; }
+    const { error } = await sb.from("bookings").update({ statut: "annulee" }).eq("id", b.dataset.cancel);
+    toast(error ? "Annulation impossible" : "Demande annulée");
+  });
+  on("#send", "click", send);
+}
+async function send() {
+  const f = S.form, m = mode(), q = quote();
+  if (!f.pickup || !f.dropoff || !q) return;
+  if (m === "now" && driver().status !== "dispo") { S.err = "Le transporteur n'est plus disponible pour une course immédiate. Choisissez « Plus tard »."; return render(); }
+  const date = m === "now" ? todayISO() : f.date, time = m === "now" ? nowHM() : f.time;
+  if (m === "avance") {
+    if (!date || !time) { S.err = "Choisissez la date et l'heure de prise en charge."; return render(); }
+    if (date + "T" + time < todayISO() + "T" + nowHM()) { S.err = "Cette date est déjà passée."; return render(); }
+  }
+  S.sending = true; S.err = ""; render();
+  const r = ref();
+  try {
+    const { error } = await sb.from("bookings").insert({ statut: "en_attente", doc: {
+      ref: r, clientPrenom: S.me.prenom, clientNom: S.me.nom, clientTel: S.me.tel,
+      mode: m === "now" ? "immediat" : "avance", date, time,
+      depart: { label: f.pickup.label, lat: f.pickup.lat, lng: f.pickup.lng },
+      arrivee: { label: f.dropoff.label, lat: f.dropoff.lat, lng: f.dropoff.lng },
+      passagers: f.passagers, bagages: f.bagages, paiement: f.paiement, note: f.note.trim(),
+      km: q.km, duree: q.min, prix: q.prix, prixTrajet: q.prixTrajet, approcheMin: q.apMin, approcheKm: q.apKm, horsZone: q.horsZone,
+      attenteOfferteMin: 6, createdAtMs: Date.now()
+    } });
+    if (error) throw error;
+    S.lastRef = r;
+    S.form = { ...S.form, pickup: null, dropoff: null, pickupText: "", dropoffText: "", note: "", date: "", time: "" };
+    S.trip = null; S.approach = null; syncMap(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch { S.err = "La réservation n'a pas pu être envoyée. Vérifiez votre connexion et réessayez."; }
+  S.sending = false; render();
+}
+
+/* ---------- démarrage ---------- */
+if (!configured) { notConfiguredScreen($("#app")); }
+else {
+  const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  watchSettings(doc => {
+    const before = JSON.stringify(S.settings.driver || {});
+    S.settings = doc || {};
+    syncMap(false); chip();
+    if (before !== JSON.stringify(S.settings.driver || {}) && !typing()) render();
+  });
+  let started = false;
+  async function start(user) {
+    if (started) return; started = true; S.uid = user.id;
+    const { data } = await sb.from("clients").select("prenom,nom,tel").eq("id", S.uid).maybeSingle();
+    S.me = data || null; render();
+    watchTable("bookings", async () => {
+      const { data, error } = await sb.from("bookings").select("*").eq("client_uid", S.uid).order("created_at", { ascending: false });
+      if (error) throw error; return data.map(rowToBooking);
+    }, rows => { S.rides = rows; if (!typing()) render(); }, "client_uid=eq." + S.uid);
+  }
+  (async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) return start(session.user);
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error || !data?.user) { $("#app").innerHTML = `<div class="msg err">Connexion impossible pour le moment. Rechargez la page.</div>`; return; }
+    start(data.user);
+  })();
+  map.on("load", () => syncMap(true));
+}
+</script>
+</body>
+</html>
