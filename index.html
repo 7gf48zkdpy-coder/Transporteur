@@ -32,15 +32,21 @@
 <div class="sheet"><div class="wrap"><main id="app" class="stack"><div class="loading">Chargement…</div></main></div></div>
 
 <script type="module">
-import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC, tarifOf, priceFor,
+import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC,
   searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen,
-  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel } from "./shared.js";
+  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel, devis, populaires } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
 
-const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], drivers: [], trip: null, approach: null, quoting: false, err: "", lastRef: null, sending: false,
-  form: { mode: null, driver: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "" } };
+const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], drivers: [], trip: null, q: null, quoting: false, err: "", lastRef: null, sending: false,
+  form: { mode: null, driver: null, pickup: null, dropoff: null, pickupText: "", dropoffText: "", passagers: 1, bagages: 0, paiement: "especes", date: "", time: "", note: "",
+    categorie: "berline", opts: { siegeEnfant: 0, arrets: 0, dispoHeures: 0 }, promo: "", promoOn: false, devisDemande: false } };
+// Réglages de tarif (affichage seulement : le prix est toujours calculé par le serveur)
+const TT = () => S.settings?.tarification || {};
+const SUP = () => TT().supplements || {};
+// Un chauffeur peut faire une course de sa catégorie (Premium fait aussi Berline, tout le monde fait Éco)
+const catOk = (dc, want) => !want || want === "eco" || dc === want || (want === "berline" && dc === "premium");
 
 /* ---------- carte ---------- */
 const map = createMap($("#map"));
@@ -53,7 +59,7 @@ function placeMarker(key, kind, p) {
 /* ---------- chauffeurs ---------- */
 const kmTo = (a, b) => { const r = x => x * Math.PI / 180, dLa = r(b.lat - a.lat), dLo = r(b.lng - a.lng); const h = Math.sin(dLa / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
 const online = () => S.drivers.filter(d => d.status !== "off" && d.lat != null);
-const freeDrivers = () => online().filter(d => d.status === "dispo");
+const freeDrivers = () => online().filter(d => d.status === "dispo" && catOk(d.categorie, S.form.categorie));
 const byId = id => S.drivers.find(d => d.id === id);
 // Le chauffeur pour une course immédiate : celui choisi par le client, sinon le plus proche disponible
 function chosen() {
@@ -99,29 +105,33 @@ $("#locbtn").addEventListener("click", async () => {
   catch (e) { toast(e.message); }
 });
 
-/* ---------- calcul du prix ---------- */
+/* ---------- calcul du prix (par le serveur) ---------- */
 const mode = () => { if (!S.form.mode) S.form.mode = freeDrivers().length ? "now" : "avance"; return S.form.mode; };
-let quoteSeq = 0;
-async function computeQuote() {
-  const f = S.form; S.trip = null; S.approach = null; S.err = "";
-  if (!f.pickup || !f.dropoff) { render(); syncMap(true); return; }
-  const seq = ++quoteSeq; S.quoting = true; render();
+const placeP = p => ({ label: p.label, lat: p.lat, lng: p.lng, cp: p.cp || (String(p.label || "").match(/\b\d{5}\b/) || [""])[0] });
+function devisParams() {
+  const f = S.form, now = mode() === "now";
+  return { depart: placeP(f.pickup), arrivee: placeP(f.dropoff), categorie: f.categorie, passagers: f.passagers, bagages: f.bagages, options: f.opts,
+    promo: f.promoOn ? f.promo.trim() : "", mode: now ? "immediat" : "avance", date: now ? null : f.date || null, time: now ? null : f.time || null, driver: f.driver || null };
+}
+let quoteSeq = 0, reqT;
+// full = recalculer aussi l'itinéraire (adresses changées) ; sinon seulement le prix (catégorie, options, code promo…)
+async function computeQuote(full = true) {
+  const f = S.form; S.err = "";
+  if (full) { S.trip = null; S.q = null; }
+  if (!f.pickup || !f.dropoff) { S.q = null; render(); syncMap(true); return; }
+  const seq = ++quoteSeq; if (full || !S.q) { S.quoting = true; render(); }
   try {
-    const trip = await route(f.pickup, f.dropoff);
-    let approach = null; const dp = driverPos();
-    if (mode() === "now" && dp) approach = await route(dp, f.pickup);
+    const [trip, q] = await Promise.all([full || !S.trip ? route(f.pickup, f.dropoff).catch(() => null) : S.trip, devis(devisParams())]);
     if (seq !== quoteSeq) return;
-    S.trip = trip; S.approach = approach;
-  } catch { if (seq === quoteSeq) S.err = "Impossible de calculer l'itinéraire pour le moment. Vérifiez les adresses ou réessayez."; }
-  if (seq === quoteSeq) { S.quoting = false; render(); syncMap(true); }
+    S.trip = trip; S.q = q;
+    if (!q?.ok) S.err = q?.erreur || "Prix indisponible pour ce trajet.";
+    else if (q.categorie !== f.categorie) f.categorie = q.categorie;
+    if (q?.promoMsg) S.err = q.promoMsg;
+  } catch { if (seq === quoteSeq) { S.q = null; S.err = "Impossible de calculer le prix pour le moment. Vérifiez votre connexion et réessayez."; } }
+  if (seq === quoteSeq) { S.quoting = false; if (!typing()) render(); if (full) syncMap(true); }
 }
-function quote() {
-  if (!S.trip) return null;
-  const T = tarifOf(S.settings), prixTrajet = priceFor(S.trip.km, T);
-  const a = S.approach, horsZone = !!(a && a.min > T.approche);
-  return { km: S.trip.km, min: S.trip.min, prixTrajet, prix: horsZone ? priceFor(S.trip.km + a.km, T) : prixTrajet,
-    apMin: a?.min ?? null, apKm: a?.km ?? null, horsZone };
-}
+const requote = (ms = 250) => { clearTimeout(reqT); reqT = setTimeout(() => computeQuote(false), ms); };
+const quote = () => S.q?.ok ? S.q : null;
 function afterPlaces() { computeQuote(); }
 
 /* ---------- écrans ---------- */
@@ -192,7 +202,6 @@ function mainView() {
       <button type="button" class="tile" data-mode="avance" aria-pressed="${m === "avance"}">${IC.cal}Plus tard<small>Date et heure</small></button>
     </div>
     ${driverPicker(m)}
-    ${blocked ? `<div class="msg warn">${d.status === "course" ? `<b>${who} est actuellement en course.</b>` : `<b>${who} est hors ligne.</b>`} Choisissez « Plus tard »${pick ? " ou un autre chauffeur" : ""} pour réserver.</div>` : ""}
     <div class="route">
       <span class="pin"></span>
       <div class="ac" id="ac-pickup"><div class="inrow"><input id="pickup" placeholder="Adresse de prise en charge" autocomplete="off" value="${esc(f.pickupText)}" aria-label="Lieu de prise en charge"><button type="button" id="mypos" aria-label="Utiliser ma position">${IC.locate}</button></div><div class="sugg" hidden></div></div>
@@ -205,20 +214,14 @@ function mainView() {
       <label class="f" for="time">Heure<input id="time" type="time" step="300" value="${esc(f.time)}"></label>
     </div>
   </section>
-  ${blocked ? "" : `
-  ${S.quoting ? `<div class="panel center muted">Calcul de l'itinéraire…</div>` : q ? `
-  <section class="panel stack">
-    <div class="quote"><div><h3>Prix estimé</h3><p class="muted small">${q.km} km · environ ${q.min} min</p></div><span class="qprice">${eur(q.prix)}</span></div>
-    ${m === "now" && q.apMin != null ? (q.horsZone
-      ? `<div class="msg warn"><b>Transporteur trop loin de votre prise en charge</b> (environ ${q.apMin} min). Son trajet jusqu'à vous est inclus : ${eur(q.prix - q.prixTrajet)}.</div>`
-      : `<div class="msg ok">${chosen() ? esc(chosen().prenom) : "Votre chauffeur"} peut être là dans <b>environ ${q.apMin} min</b>.</div>`) : ""}
-  </section>` : ""}
+  ${S.quoting ? `<div class="panel center muted">Calcul du prix…</div>` : q ? quotePanel(q, m) : ""}
   <section class="panel stack">
     ${st("Passagers et bagages")}
     <div class="counters">
       <div class="counter"><span>Passagers</span><div class="stepper"><button type="button" data-step="passagers:-1" aria-label="Un passager de moins">−</button><output>${f.passagers}</output><button type="button" data-step="passagers:1" aria-label="Un passager de plus">+</button></div></div>
       <div class="counter"><span>Bagages</span><div class="stepper"><button type="button" data-step="bagages:-1" aria-label="Un bagage de moins">−</button><output>${f.bagages}</output><button type="button" data-step="bagages:1" aria-label="Un bagage de plus">+</button></div></div>
     </div>
+    ${optionsBlock()}
     ${st("Paiement")}
     <div class="choice">
       <label><input type="radio" name="pay" value="cb" ${f.paiement === "cb" ? "checked" : ""}><span><b>Carte bancaire</b><small>${revolutLink(S.settings.revtag) ? "Carte ou Apple Pay" : "Par virement"}</small></span></label>
@@ -228,22 +231,54 @@ function mainView() {
     <details class="inline" ${f.note ? "open" : ""}><summary>+ Ajouter un message pour le chauffeur</summary><textarea id="note" style="margin-top:8px" placeholder="Numéro de vol, code d'accès, siège enfant…" aria-label="Message pour le chauffeur">${esc(f.note)}</textarea></details>
   </section>
   ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
-  <button class="big" id="send" ${!q || S.sending ? "disabled" : ""}>${S.sending ? "Envoi…" : q ? "Réserver · " + eur(q.prix) : "Indiquez les deux adresses"}</button>
-  <div class="gift"><span class="n">6 min</span><span>d'attente <b>offertes</b> à la prise en charge</span></div>`}
+  ${blocked ? `<div class="msg warn">${d.status === "course" ? `<b>${who} est actuellement en course.</b>` : `<b>Aucun chauffeur ${esc(catName())} disponible maintenant.</b>`} Choisissez « Plus tard »${S.q?.categories?.length > 1 ? " ou une autre catégorie" : ""} pour réserver.</div>` : ""}
+  <button class="big" id="send" ${!q || S.sending || blocked ? "disabled" : ""}>${S.sending ? "Envoi…" : q ? "Réserver · " + eur(q.total) : "Indiquez les deux adresses"}</button>
+  <div class="gift"><span class="n">${Number(SUP().franchiseMin ?? 6)} min</span><span>d'attente <b>offertes</b> à la prise en charge</span></div>
   ${past.length ? `<details class="more"><summary>Historique (${past.length})</summary><div class="body stack">${past.map(rideCard).join("")}</div></details>` : ""}
   <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
 }
 
+const catName = () => S.q?.categorieNom || ({ eco: "Éco", berline: "Berline", premium: "Premium", van: "Van" }[S.form.categorie] || "");
+// Le devis : catégories, prix détaillé, conditions — tout vient du serveur
+function quotePanel(q, m) {
+  const now = m === "now";
+  const catBtn = c => { const noDrv = now && c.dispo && !online().some(x => x.status === "dispo" && catOk(x.categorie, c.id));
+    return `<button type="button" class="cat" data-cat="${esc(c.id)}" aria-pressed="${c.id === q.categorie}" ${c.dispo ? "" : "disabled"}>
+      <span>${esc(c.nom)}</span><small>${c.pax} pers. · ${c.bag} bagages${!c.dispo ? " · trop petit" : noDrv ? " · aucun libre" : ""}</small><span class="cp">${eur(c.prix)}</span></button>`; };
+  const lines = (q.lignes || []).map(l => `<div class="l ${l.montant < 0 ? "minus" : ""}"><span>${esc(l.label)}</span><span>${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</span></div>`).join("");
+  return `<section class="panel stack">
+    <h3>Véhicule</h3>
+    <div class="cats" role="group" aria-label="Catégorie de véhicule">${(q.categories || []).map(catBtn).join("")}</div>
+    <div class="quote"><div><h3>${q.forfait ? "Prix fixe" : "Prix de la course"}</h3><p class="muted small">${String(q.km).replace(".", ",")} km · environ ${q.duree} min · ${esc(q.categorieNom)}</p></div><span class="qprice">${eur(q.total)}</span></div>
+    ${q.forfait ? `<div class="msg gold">Forfait <b>${esc(q.forfait.label)}</b> : le prix ne change pas, même s'il y a des bouchons.</div>` : ""}
+    ${now && q.approcheMin != null ? (q.horsZone
+      ? `<div class="msg warn"><b>Le chauffeur est loin de vous</b> (environ ${q.approcheMin} min). Son trajet jusqu'à vous est inclus dans le prix.</div>`
+      : `<div class="msg ok">${chosen() ? esc(chosen().prenom) : "Votre chauffeur"} peut être là dans <b>environ ${q.approcheMin} min</b>.</div>`) : ""}
+    <div class="lines">${lines}<div class="l tot"><span>Total à payer</span><span>${eur(q.total)}</span></div></div>
+    ${q.longueDistance ? `<div class="msg">Longue distance : prix calculé sur la distance réelle de la route.</div>
+      <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="devis-ask" style="width:auto;min-height:0" ${S.form.devisDemande ? "checked" : ""}> Je souhaite être rappelé pour un devis personnalisé</label>` : ""}
+    <details class="inline"><summary>Conditions d'annulation</summary><p class="small muted" style="margin-top:6px">${esc(TT().annulation || "Annulation gratuite tant qu'aucun chauffeur n'a accepté la course.")}</p></details>
+    <p class="small muted">Le prix affiché est le prix final : il ne change plus après la réservation.</p>
+  </section>`;
+}
+function optionsBlock() {
+  const f = S.form, o = f.opts, sp = SUP();
+  const row = (k, label, price, max) => price > 0 ? `<div class="counter"><span>${label} · ${eur(price)}</span><div class="stepper"><button type="button" data-opt="${k}:-1:${max}" aria-label="${label} : un de moins">−</button><output>${o[k]}</output><button type="button" data-opt="${k}:1:${max}" aria-label="${label} : un de plus">+</button></div></div>` : "";
+  const rows = [row("siegeEnfant", "Siège enfant", Number(sp.siegeEnfant) || 0, 4), row("arrets", "Arrêt en route", Number(sp.arret) || 0, 5), row("dispoHeures", "Mise à dispo (h)", Number(sp.dispoHeure) || 0, 12)].join("");
+  return `${rows ? `<details class="inline" ${o.siegeEnfant || o.arrets || o.dispoHeures ? "open" : ""}><summary>+ Options (siège enfant, arrêt…)</summary><div class="counters" style="margin-top:8px">${rows}</div></details>` : ""}
+    <details class="inline" ${f.promo ? "open" : ""}><summary>+ J'ai un code promo</summary>
+      <div class="promo" style="margin-top:8px"><input id="promo" placeholder="CODE" autocomplete="off" autocapitalize="characters" value="${esc(f.promo)}" aria-label="Code promo"><button type="button" class="sm" id="promo-ok">${f.promoOn && S.q?.promo ? "Appliqué ✓" : "Appliquer"}</button></div></details>`;
+}
 // Choix du chauffeur : « le plus proche » par défaut, ou un chauffeur en particulier
 function driverPicker(m) {
-  if (S.drivers.length < 2) return "";
-  const f = S.form, now = m === "now";
+  const f = S.form, now = m === "now", list = S.drivers.filter(x => catOk(x.categorie, f.categorie));
+  if (list.length < 2) return "";
   const state = x => x.status === "dispo" && x.lat != null ? ["dispo", "Disponible"] : x.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
   const btn = (id, title, sub, dot, disabled) => `<button type="button" class="drv" data-driver="${id}" aria-pressed="${(f.driver || "") === id}" ${disabled ? "disabled" : ""}>
     <span>${dot ? `<span class="dot d-${dot}"></span> ` : ""}${title}</span><small>${sub}</small></button>`;
   return `<div class="stack" style="gap:6px"><span class="small muted">Chauffeur</span><div class="drvs" role="group" aria-label="Choisir un chauffeur">
     ${btn("", "Le plus proche", now ? (freeDrivers().length ? "Le plus rapide" : "Aucun disponible") : "Premier disponible", "", false)}
-    ${S.drivers.map(x => { const [dot, txt] = state(x); return btn(x.id, esc(x.prenom), esc(now && dot !== "dispo" ? txt : x.modele || txt), now ? dot : "", now && dot !== "dispo"); }).join("")}
+    ${list.map(x => { const [dot, txt] = state(x); return btn(x.id, esc(x.prenom), esc(now && dot !== "dispo" ? txt : x.modele || txt), now ? dot : "", now && dot !== "dispo"); }).join("")}
   </div></div>`;
 }
 function driverBox(r) {
@@ -278,8 +313,9 @@ function rideCard(r) {
     <div class="between"><span class="when">${r.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(r.date)} · ${esc(r.time)}</span><span class="pill s-${r.statut}">${STATUS[r.statut] || r.statut}</span></div>
     ${driverBox(r)}
     <div class="route"><span class="pin"></span><span>${esc(r.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(r.arrivee?.label)}</span></div>
-    <div class="between"><div class="facts"><span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "Carte" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
-    ${r.statut === "confirmee" ? (r.phase === "arrive" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est arrivé 📍</b> Il vous attend : 6 minutes d'attente offertes.</div>`
+    <div class="between"><div class="facts">${r.categorieNom ? `<span class="fact">${esc(r.categorieNom)}</span>` : ""}<span class="fact"><b>${r.passagers}</b> pers.</span><span class="fact"><b>${r.bagages}</b> bag.</span><span class="fact">${r.paiement === "cb" ? "Carte" : "Espèces"}</span></div>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
+    ${r.tarif?.lignes?.length ? `<details class="inline"><summary>Détail du prix</summary><div class="lines" style="margin-top:6px">${r.tarif.lignes.map(l => `<div class="l"><span>${esc(l.label)}</span><span>${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</span></div>`).join("")}<div class="l tot"><span>Total</span><span>${eur(r.prix)}</span></div></div></details>` : ""}
+    ${r.statut === "confirmee" ? (r.phase === "arrive" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est arrivé 📍</b> Il vous attend : ${r.attenteOfferteMin ?? 6} minutes d'attente offertes.</div>`
       : r.phase === "abord" ? `<div class="msg ok"><b>Bonne route !</b> Vous êtes en route vers votre destination.</div>`
       : r.phase === "approche" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est en route.</b> Suivez sa voiture sur la carte.</div>` : "") : ""}
     ${r.statut === "confirmee" || r.statut === "en_attente" ? `<button class="ghost sm" data-share="${r.id}">Partager le suivi avec un proche</button>` : ""}
@@ -309,10 +345,11 @@ function bindAC(key) {
     t = setTimeout(async () => {
       const my = ++seq;
       try {
-        const res = await searchPlaces(input.value, S.form.pickup || driverPos());
+        const pop = populaires(input.value), found = input.value.trim().length >= 3 ? await searchPlaces(input.value, S.form.pickup || driverPos()).catch(() => []) : [];
+        const res = [...pop, ...found.filter(x => !pop.some(y => y.main === x.main))].slice(0, 8);
         if (my !== seq) return;
         if (!res.length) { list.hidden = true; return; }
-        list.innerHTML = res.map((p, i) => `<button type="button" data-i="${i}">${esc(p.main)}<small>${esc(p.sub)}</small></button>`).join("");
+        list.innerHTML = res.map((p, i) => `<button type="button" data-i="${i}">${esc(p.main)}${p.pop ? `<span class="pop">★</span>` : ""}<small>${esc(p.sub)}</small></button>`).join("");
         list.hidden = false;
         list.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
           const p = res[+b.dataset.i]; S.form[key] = p; S.form[key + "Text"] = p.label; list.hidden = true; afterPlaces();
@@ -320,6 +357,8 @@ function bindAC(key) {
       } catch { list.hidden = true; }
     }, 300);
   });
+  // Champ vide : on propose les gares, aéroports et lieux connus
+  input.addEventListener("focus", () => { if (!input.value.trim()) input.dispatchEvent(new Event("input")); });
   input.addEventListener("blur", () => setTimeout(() => list.hidden = true, 200));
 }
 function bindMain() {
@@ -329,11 +368,16 @@ function bindMain() {
     try { toast("Localisation…"); const p = await getPosition(); S.form.pickup = await reverse(p.lat, p.lng); S.form.pickupText = S.form.pickup.label; afterPlaces(); }
     catch (e) { toast(e.message); }
   });
-  on("[data-mode]", "click", e => { S.form.mode = e.currentTarget.dataset.mode; S.err = ""; computeQuote(); });
-  on("[data-driver]", "click", e => { S.form.driver = e.currentTarget.dataset.driver || null; S.err = ""; computeQuote(); });
-  on("#date,#time", "change", e => { S.form[e.target.id] = e.target.value; });
+  on("[data-mode]", "click", e => { S.form.mode = e.currentTarget.dataset.mode; S.err = ""; computeQuote(false); });
+  on("[data-driver]", "click", e => { S.form.driver = e.currentTarget.dataset.driver || null; S.err = ""; computeQuote(false); });
+  on("[data-cat]", "click", e => { S.form.categorie = e.currentTarget.dataset.cat; const dv = S.form.driver && byId(S.form.driver); if (dv && !catOk(dv.categorie, S.form.categorie)) S.form.driver = null; S.err = ""; computeQuote(false); });
+  on("#date,#time", "change", e => { S.form[e.target.id] = e.target.value; requote(); });
+  on("[data-opt]", "click", e => { const [k, dd, mx] = e.currentTarget.dataset.opt.split(":"); S.form.opts[k] = Math.min(+mx, Math.max(0, S.form.opts[k] + Number(dd))); e.currentTarget.parentElement.querySelector("output").textContent = S.form.opts[k]; requote(); });
+  on("#promo", "input", e => { S.form.promo = e.target.value.toUpperCase(); });
+  on("#promo-ok", "click", () => { S.form.promoOn = !!S.form.promo.trim(); computeQuote(false); });
+  on("#devis-ask", "change", e => { S.form.devisDemande = e.target.checked; });
   on("#note", "input", e => { S.form.note = e.target.value; });
-  on("[data-step]", "click", e => { const [k, d] = e.currentTarget.dataset.step.split(":"); const max = k === "passagers" ? 8 : 10, min = k === "passagers" ? 1 : 0; S.form[k] = Math.min(max, Math.max(min, S.form[k] + Number(d))); e.currentTarget.parentElement.querySelector("output").textContent = S.form[k]; });
+  on("[data-step]", "click", e => { const [k, d] = e.currentTarget.dataset.step.split(":"); const max = k === "passagers" ? 8 : 10, min = k === "passagers" ? 1 : 0; S.form[k] = Math.min(max, Math.max(min, S.form[k] + Number(d))); e.currentTarget.parentElement.querySelector("output").textContent = S.form[k]; requote(); });
   on("input[name=pay]", "change", e => { S.form.paiement = e.target.value; render(); });
   on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
   on("#close-conf", "click", () => { S.lastRef = null; render(); });
@@ -373,21 +417,25 @@ async function send() {
   S.sending = true; S.err = ""; render();
   const r = ref();
   try {
+    // Le serveur recalcule le prix : s'il ne correspond pas au prix affiché, la réservation est refusée
     const { error } = await sb.from("bookings").insert({ statut: "en_attente", client_uid: S.uid, requested_driver: f.driver || null, doc: {
       ref: r, clientPrenom: S.me.prenom, clientNom: S.me.nom, clientTel: S.me.tel,
       mode: m === "now" ? "immediat" : "avance", date, time,
-      depart: { label: f.pickup.label, lat: f.pickup.lat, lng: f.pickup.lng },
-      arrivee: { label: f.dropoff.label, lat: f.dropoff.lat, lng: f.dropoff.lng },
+      depart: placeP(f.pickup), arrivee: placeP(f.dropoff),
       passagers: f.passagers, bagages: f.bagages, paiement: f.paiement, note: f.note.trim(),
-      km: q.km, duree: q.min, prix: q.prix, prixTrajet: q.prixTrajet, approcheMin: q.apMin, approcheKm: q.apKm, horsZone: q.horsZone,
-      attenteOfferteMin: 6, createdAtMs: Date.now()
+      categorie: q.categorie, options: f.opts, promo: f.promoOn ? f.promo.trim() : "", prix: q.total,
+      devisDemande: !!(f.devisDemande && q.longueDistance), createdAtMs: Date.now()
     } });
     if (error) throw error;
     S.lastRef = r;
-    S.form = { ...S.form, pickup: null, dropoff: null, pickupText: "", dropoffText: "", note: "", date: "", time: "" };
-    S.trip = null; S.approach = null; syncMap(false);
+    S.form = { ...S.form, pickup: null, dropoff: null, pickupText: "", dropoffText: "", note: "", date: "", time: "", opts: { siegeEnfant: 0, arrets: 0, dispoHeures: 0 }, promo: "", promoOn: false, devisDemande: false };
+    S.trip = null; S.q = null; syncMap(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  } catch { S.err = "La réservation n'a pas pu être envoyée. Vérifiez votre connexion et réessayez."; }
+  } catch (e) {
+    const msg = String(e?.message || "");
+    if (msg.startsWith("PRIX_CHANGE")) { S.sending = false; await computeQuote(false); S.err = "Le prix vient d'être mis à jour" + (S.q?.ok ? " : " + eur(S.q.total) : "") + ". Vérifiez le détail puis réservez à nouveau."; render(); return; }
+    S.err = e?.code === "P0001" && msg ? msg : "La réservation n'a pas pu être envoyée. Vérifiez votre connexion et réessayez.";
+  }
   S.sending = false; render();
 }
 

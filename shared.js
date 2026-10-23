@@ -40,7 +40,7 @@ export const rowToBooking = r => ({ ...(r.doc || {}), id: r.id, statut: r.statut
 export const docOf = b => { const { id, statut, clientUid, driverId, offeredTo, offeredAt, requestedDriver, refused, ...doc } = b; return doc; };
 // Chauffeurs actifs (sans téléphone) avec position s'ils sont en ligne
 export async function driversLive() {
-  const { data, error } = await sb.rpc("drivers_live"); if (error) throw error; return data || [];
+  const { data, error } = await sb.rpc("drivers_live2"); if (error) throw error; return data || [];
 }
 export const carLabel = d => [d?.modele, d?.plaque].filter(Boolean).join(" · ");
 export async function fetchSettings() {
@@ -85,26 +85,46 @@ export const IC = {
   team: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 7.9 7.5 9.5 4.4-1.6 7.5-5.1 7.5-9.5V6z"/><circle cx="12" cy="10" r="2.4"/><path d="M8.3 16c.7-1.8 2-2.7 3.7-2.7s3 .9 3.7 2.7"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>',
   cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
+  tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0z"/><circle cx="8.2" cy="8.2" r="1.5"/></svg>',
   locate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
   carTop: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="6.9" cy="8.9" rx="1" ry=".55" fill="#f6f5f1"/><ellipse cx="17.1" cy="8.9" rx="1" ry=".55" fill="#f6f5f1"/><path d="M12 1.4C15 1.4 16.4 2.3 16.6 4.6L16.8 19.2C16.8 21.6 15.4 22.6 12 22.6S7.2 21.6 7.2 19.2L7.4 4.6C7.6 2.3 9 1.4 12 1.4Z" fill="#f6f5f1"/><path d="M8.3 8.9Q12 7.5 15.7 8.9L14.9 12.1Q12 11.5 9.1 12.1Z" fill="#1b1b19"/><path d="M9.3 12.6Q12 12.1 14.7 12.6L14.7 16Q12 16.4 9.3 16Z" fill="#d9d7cf"/><path d="M9.2 16.6Q12 17 14.8 16.6L15.3 18.8Q12 19.5 8.7 18.8Z" fill="#1b1b19"/><path d="M8.4 2.6Q9.3 2.1 10.1 2.2" stroke="#2F6BED" stroke-width=".7" stroke-linecap="round" fill="none"/><path d="M15.6 2.6Q14.7 2.1 13.9 2.2" stroke="#2F6BED" stroke-width=".7" stroke-linecap="round" fill="none"/><path d="M8.2 21.4H9.8M14.2 21.4H15.8" stroke="#b3302a" stroke-width=".6" stroke-linecap="round"/></svg>'
 };
 
-/* ---------- tarif ---------- */
-export function tarifOf(settings) {
-  const t = settings?.tarif || {};
-  const d = DEFAULT_SETTINGS.tarif;
-  return { ...d, ...t, tiers: (t.tiers && t.tiers.length) ? t.tiers : d.tiers };
+/* ---------- devis (calculé par le serveur : le client ne peut pas modifier le prix) ---------- */
+export async function devis(params) {
+  const { data, error } = await sb.rpc("tarif_devis", { p: params });
+  if (error) throw error; return data;
 }
-// Prix au km selon la longueur totale ; une course plus longue ne coûte jamais moins cher.
-export function priceFor(km, T) {
-  let prev = 0, floor = 0, prevRate = null;
-  for (const { upto, rate } of T.tiers) {
-    if (prevRate != null) floor = Math.max(floor, prev * prevRate);
-    const cap = upto == null ? Infinity : upto;
-    if (km <= cap) return Math.round(Math.max(km * rate, floor, T.min || 0) * 100) / 100;
-    prev = cap; prevRate = rate;
-  }
-  return 0;
+export const CATS = { eco: "Éco", berline: "Berline", premium: "Berline Premium", van: "Van" };
+
+/* ---------- lieux populaires (suggestions de recherche, sans supplément) ---------- */
+export const POPULAIRES = [
+  ["Aéroport Roissy-CDG · Terminal 1", "Roissy-en-France", 49.0141, 2.5418, "95700"],
+  ["Aéroport Roissy-CDG · Terminal 2", "Roissy-en-France", 49.0040, 2.5707, "95700"],
+  ["Aéroport Roissy-CDG · Terminal 3", "Roissy-en-France", 49.0127, 2.5617, "95700"],
+  ["Aéroport d'Orly · Orly 1-2-3", "Paray-Vieille-Poste", 48.7297, 2.3602, "94390"],
+  ["Aéroport d'Orly · Orly 4", "Paray-Vieille-Poste", 48.7290, 2.3699, "94390"],
+  ["Aéroport de Beauvais-Tillé", "Tillé", 49.4543, 2.1117, "60000"],
+  ["Gare du Nord", "Paris 10e", 48.8809, 2.3553, "75010"],
+  ["Gare de Lyon", "Paris 12e", 48.8444, 2.3748, "75012"],
+  ["Gare de l'Est", "Paris 10e", 48.8771, 2.3595, "75010"],
+  ["Gare Montparnasse", "Paris 15e", 48.8401, 2.3191, "75015"],
+  ["Gare Saint-Lazare", "Paris 8e", 48.8770, 2.3251, "75008"],
+  ["Gare d'Austerlitz", "Paris 13e", 48.8418, 2.3661, "75013"],
+  ["Gare Marne-la-Vallée – Chessy", "Chessy", 48.8699, 2.7822, "77700"],
+  ["La Défense · Grande Arche", "Puteaux", 48.8922, 2.2369, "92800"],
+  ["Château de Versailles", "Versailles", 48.8044, 2.1203, "78000"],
+  ["Disneyland Paris", "Chessy", 48.8723, 2.7757, "77700"],
+  ["Stade de France", "Saint-Denis", 48.9245, 2.3601, "93200"],
+  ["Parc des expositions Paris-Nord Villepinte", "Villepinte", 48.9702, 2.5254, "93420"],
+  ["Paris Expo Porte de Versailles", "Paris 15e", 48.8287, 2.2890, "75015"],
+  ["Stade Roland-Garros", "Paris 16e", 48.8469, 2.2484, "75016"]
+].map(([main, ville, lat, lng, cp]) => ({ main, sub: cp + " " + ville, label: main + ", " + cp + " " + ville, lat, lng, cp, pop: true }));
+const norm = t => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+export function populaires(q) {
+  const words = norm(q).split(/[^a-z0-9]+/).filter(w => w.length > 1);
+  if (!words.length) return POPULAIRES.slice(0, 8);
+  return POPULAIRES.filter(p => { const t = norm(p.label); return words.every(w => t.includes(w)); }).slice(0, 4);
 }
 
 /* ---------- adresses & itinéraires (services gratuits, sans clé) ---------- */
@@ -122,7 +142,7 @@ function placeFromFeature(f) {
   const street = [p.housenumber, p.street].filter(Boolean).join(" ");
   const main = p.name && p.name !== p.street ? p.name : (street || p.city || "Lieu");
   const sub = [p.name && street && p.name !== p.street ? street : "", [p.postcode, p.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-  return { label: sub ? main + ", " + sub : main, main, sub, lat, lng };
+  return { label: sub ? main + ", " + sub : main, main, sub, lat, lng, cp: p.postcode || "" };
 }
 export async function reverse(lat, lng) {
   try {

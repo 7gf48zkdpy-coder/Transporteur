@@ -8,7 +8,7 @@
 // directement par le réseau. Aucune donnée client, réservation ou réponse authentifiée
 // n'est stockée. Les pages et le code sont toujours chargés depuis le réseau (dernière version).
 
-const VERSION = "transporteur-offline-v3";
+const VERSION = "transporteur-offline-v4";
 const OFFLINE_URL = "./offline.html";
 
 self.addEventListener("install", event => {

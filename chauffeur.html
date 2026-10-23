@@ -29,7 +29,7 @@
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, docOf, carLabel, configured, DEFAULT_SETTINGS, $, esc, todayISO, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  revolutLink, tarifOf, priceFor, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+  revolutLink, CATS, searchPlaces, populaires, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -45,7 +45,7 @@ const driver = () => ({ status: S.row?.status || "off", lat: S.row?.lat, lng: S.
 const nameOf = id => { const d = S.team.find(x => x.id === id); return d ? d.prenom || "Chauffeur" : id === S.uid ? S.row?.prenom : "un chauffeur"; };
 const mine = b => b.driverId === S.uid;
 const offerForMe = b => b.statut === "en_attente" && !b.driverId && (b.offeredTo === S.uid || !b.offeredTo);
-const editingForm = () => S.edit || S.pw || S.add || S.cedit;
+const editingForm = () => S.edit || S.pw || S.add || S.cedit || S.fix;
 // Réglages de l'équipe (modifiables par le compte principal)
 const maxEq = () => Math.max(1, Math.min(50, Number(S.settings?.maxChauffeurs) || 4));
 const pctOf = () => { const v = Number(S.settings?.commission); return Number.isFinite(v) && S.settings?.commission !== undefined && S.settings?.commission !== "" ? Math.max(0, Math.min(100, v)) : 10; };
@@ -238,17 +238,17 @@ function render() {
   ensureMap();
   $("#who").textContent = S.row.prenom ? S.row.prenom : "";
   const pending = S.bookings.filter(offerForMe).length, demandes = isAdmin() ? S.team.filter(x => x.demande).length : 0;
-  const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users]] : []), ["reglages", "Réglages", IC.sliders]];
+  const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users], ["tarifs", "Tarifs", IC.tag]] : []), ["reglages", "Réglages", IC.sliders]];
   if (!tabs.some(t => t[0] === S.tab)) S.tab = "resa";
   const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav");
   nav.innerHTML = `<div class="in" role="tablist">${tabs.map(([k, l, ic]) =>
     `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : k === "equipe" && demandes ? `<span class="badge">${demandes}</span>` : ""}</button>`).join("")}</div>`;
-  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = S.cedit = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); render(); window.scrollTo(0, 0); });
+  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = S.cedit = S.fix = null; S.td = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); if (S.tab === "tarifs") loadHist(); render(); window.scrollTo(0, 0); });
   const act = S.tab === "resa" ? activeRide() : null;
   const box = $("#mapbox"), wasBig = box.classList.contains("big");
   box.classList.toggle("big", !!act);
   if (map && wasBig !== !!act) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
-  app.innerHTML = devBar() + (act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : reglagesView());
+  app.innerHTML = devBar() + (act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : S.tab === "tarifs" ? tarifsView() : reglagesView());
   bind();
   if (act) {
     updateNavDom(); updateNav(navState.key !== act.id + act.phase);
@@ -386,8 +386,14 @@ function rideCard(b) {
     <div class="client"><div><div class="nm">${esc(b.clientPrenom)} ${esc(b.clientNom)}</div><div class="mono small">${esc(b.clientTel)}</div></div>
       <div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(tel)}">Appeler</a><button class="ghost sm" data-copy="${esc(b.clientTel)}">Copier</button></div></div>
     <div class="route"><span class="pin"></span><span>${esc(b.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(b.arrivee?.label)}</span></div>
-    <div class="between"><div class="facts"><span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "Carte" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
+    <div class="between"><div class="facts">${b.categorieNom ? `<span class="fact"><b>${esc(b.categorieNom)}</b></span>` : ""}<span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "Carte" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.forfait ? `<span class="fact">Forfait ${esc(b.forfait.label)}</span>` : b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
+    ${optsLine(b)}
+    ${b.devisDemande ? `<div class="msg gold">Le client souhaite être rappelé pour un <b>devis personnalisé</b>.</div>` : ""}
+    ${b.tarif?.lignes?.length ? `<details class="inline"><summary>Détail du prix</summary><div class="lines" style="margin-top:6px">${b.tarif.lignes.map(l => `<div class="l"><span>${esc(l.label)}</span><span>${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</span></div>`).join("")}<div class="l tot"><span>Total</span><span>${eur(b.prix)}</span></div></div></details>` : ""}
     ${b.note ? `<p class="small muted">« ${esc(b.note)} »</p>` : ""}
+    ${isAdmin() && S.fix === b.id ? `<form class="stack" data-fix-form="${b.id}" novalidate><p class="small muted">Correction réservée au compte principal (les chauffeurs ne peuvent pas modifier le kilométrage ni le prix).</p>
+      <div class="row"><label class="f" for="fix-km">Kilomètres<input id="fix-km" class="mono" type="number" inputmode="decimal" step="0.1" min="0" value="${b.km ?? ""}"></label><label class="f" for="fix-prix">Prix (€)<input id="fix-prix" class="mono" type="number" inputmode="decimal" step="0.5" min="0" value="${b.prix ?? ""}"></label></div>
+      <div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-fix-close>Fermer</button></div></form>` : ""}
     ${live && !other ? `<div class="actions"><a class="navbtn waze" href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a class="navbtn" href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a></div>
       ${b.depart?.lat && b.arrivee?.lat ? `<div class="navlinks"><a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a></div>` : ""}` : ""}
     <div class="actions">
@@ -398,7 +404,14 @@ function rideCard(b) {
       ${b.statut === "confirmee" && (mine(b) || isAdmin()) ? `<button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
       ${b.statut === "annulee" && isAdmin() ? `<button class="link" data-repend="${b.id}">Remettre en attente</button>` : ""}
     </div>
-    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p>${isAdmin() ? `<button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button>` : ""}</div></article>`;
+    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p>${isAdmin() ? `<span><button class="link" data-fix="${b.id}">Corriger km / prix</button> · <button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button></span>` : ""}</div></article>`;
+}
+function optsLine(b) {
+  const o = b.options || {}, t = [];
+  if (o.siegeEnfant) t.push(o.siegeEnfant + " siège" + (o.siegeEnfant > 1 ? "s" : "") + " enfant");
+  if (o.arrets) t.push(o.arrets + " arrêt" + (o.arrets > 1 ? "s" : "") + " en route");
+  if (o.dispoHeures) t.push("mise à disposition " + o.dispoHeures + " h");
+  return t.length ? `<div class="msg gold small">À prévoir : <b>${esc(t.join(", "))}</b></div>` : "";
 }
 // Base clients (compte principal) : recherche, fiche, modification, suppression
 function clientsView() {
@@ -456,6 +469,7 @@ function equipeView() {
         <div class="small">${esc(carLabel(L)) || `<span class="muted">Véhicule non renseigné</span>`}</div></div>
         <span class="pill s-${cls === "dispo" ? "confirmee" : cls === "course" ? "now" : "annulee"}"><span class="dot d-${cls}"></span>${txt}</span></div>
       ${d.is_admin ? `<p class="small muted">Compte principal (vous)</p>` : ""}
+      ${d.actif ? `<label class="f" for="dcat-${d.id}">Catégorie du véhicule<select id="dcat-${d.id}" data-dcat="${d.id}">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${(L.categorie || "berline") === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       <div class="facts"><span class="fact mono">${esc(d.email)}</span>${L.tel ? `<span class="fact mono">${esc(L.tel)}</span>` : ""}${L.revtag ? `<span class="fact mono">@${esc(L.revtag)}</span>` : ""}</div>
       <div class="facts"><span class="fact">Aujourd'hui <b>${st.today.length}</b> · ${eur(sum(st.today))}</span><span class="fact">Ce mois <b>${st.month.length}</b> · ${eur(sum(st.month))}</span></div>
       ${d.is_admin ? "" : (() => { const p = partOf(d.id); return `<div class="between" style="background:var(--gold-soft);border-radius:12px;padding:10px 12px"><div class="small">Ta part : <b>${eur(p.du)}</b> · réglé ${eur(p.paye)}<br><b>Reste à recevoir : ${eur(p.reste)}</b></div>${p.reste > 0 ? `<button class="sm" data-regle="${d.id}|${p.du}">Marquer réglé</button>` : ""}</div>`; })()}
@@ -489,9 +503,10 @@ function equipeView() {
 }
 
 function reglagesView() {
-  const s = { ...DEFAULT_SETTINGS, ...S.settings }, T = tarifOf(S.settings);
+  const s = { ...DEFAULT_SETTINGS, ...S.settings };
   const profil = `<form id="me-form" class="panel stack" novalidate><h3>Mon profil et ma voiture</h3>
     <p class="muted small">Vos clients voient votre prénom, votre voiture et votre plaque.</p>${profileFields("m", S.row)}
+    <p class="small">Catégorie de votre véhicule : <b>${esc(CATS[S.row.categorie] || "Berline")}</b> <span class="muted">(réglée par le responsable)</span></p>
     <button class="big" type="submit">Enregistrer</button></form>`;
   const pw = `<form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
   if (!isAdmin()) return `<h2>Réglages</h2>${profil}${pw}<div class="panel"><button class="ghost" id="logout">Se déconnecter</button></div>`;
@@ -499,16 +514,7 @@ function reglagesView() {
   <div class="panel stack"><div class="between"><div><h3>Mode développeur</h3><p class="small muted">Pour tester l'appli comme un chauffeur ou comme un client.</p></div>
     <button class="sm ${devOn() ? "" : "ghost"}" id="dev-toggle">${devOn() ? "Activé" : "Activer"}</button></div></div>
   ${profil}
-  <form id="tarif-form" class="panel stack" novalidate><h3>Prix au kilomètre</h3>
-    <p class="muted small">Plus la course est longue, moins le km est cher. Une course plus longue ne coûte jamais moins cher qu'une plus courte. Valable pour toute l'équipe.</p>
-    <div class="tbl"><table><thead><tr><th>Distance</th><th>€ / km</th></tr></thead><tbody>
-    ${T.tiers.map((t, i) => { const from = i ? T.tiers[i - 1].upto : 0; return `<tr><td>${t.upto == null ? `Au-delà de ${from} km` : `${from} à <input class="mini mono" id="tu-${i}" type="number" inputmode="decimal" min="1" value="${t.upto}"> km`}</td><td><input class="mini mono" id="tr-${i}" type="number" inputmode="decimal" step="0.01" min="0" value="${Number(t.rate).toFixed(2)}"></td></tr>`; }).join("")}
-    </tbody></table></div>
-    <div class="row"><label class="f" for="t-min">Prix minimum (€)<input id="t-min" class="mono" type="number" inputmode="decimal" min="0" value="${T.min || 0}"></label>
-    <label class="f" for="t-ap">Approche offerte (min)<input id="t-ap" class="mono" type="number" inputmode="numeric" min="0" value="${T.approche}"></label></div>
-    <div class="facts">${[5, 15, 30, 60, 100].map(k => `<span class="fact">${k} km → <b>${eur(priceFor(k, T))}</b></span>`).join("")}</div>
-    ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
-    <button class="big" type="submit">Enregistrer les tarifs</button></form>
+  <div class="panel stack"><h3>Tarifs</h3><p class="small muted">Prix au km, forfaits aéroports, catégories, suppléments et codes promo : tout est dans l'onglet <b>Tarifs</b>.</p><div><button class="ghost sm" data-tab-go="tarifs">Ouvrir les tarifs</button></div></div>
   <form id="pay-form" class="panel stack"><h3>Virement bancaire</h3>
     <p class="muted small">Affiché aux clients qui paient par carte quand le chauffeur n'a pas de Revtag.</p>
     <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
@@ -520,6 +526,179 @@ function reglagesView() {
   ${pw}`;
 }
 
+// Forfaits aéroports (compte principal) : un prix fixe par département et par aéroport
+function forfaitsForm() {
+  const F = S.settings?.forfaits; if (!F?.prix || !F?.aeroports) return "";
+  return `<form id="fx-form" class="panel stack" novalidate><h3>Forfaits aéroports</h3>
+    <p class="muted small">Prix fixe entre un département et un aéroport, dans les deux sens (utilisé quand aucun forfait entre deux lieux ne correspond). Calculés sur la distance réelle depuis la préfecture avec ta formule, arrondis à 5 €. Prix Éco : la catégorie choisie s'applique en plus.</p>
+    <div class="tbl"><table><thead><tr><th>Départ.</th>${F.aeroports.map(a => `<th>${esc(a.code)} €</th>`).join("")}</tr></thead><tbody>
+    ${F.prix.map((r, i) => `<tr><td>${esc(r.dep)} ${esc(r.nom)}</td>${F.aeroports.map(a => `<td><input class="mini mono" id="fx-${i}-${a.code}" type="number" inputmode="decimal" min="0" value="${Number(r[a.code]) || 0}"></td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted small">CDG = Roissy, ORY = Orly, BVA = Beauvais. Mettre 0 pour revenir au prix au km.</p>
+    <button class="big" type="submit">Enregistrer la grille</button></form>`;
+}
+/* ---------- tarifs (compte principal) ---------- */
+const TDEF = { min: 9, base: 3, km: 1.5, minute: 0.2, arrondi: 0.5, longueDistanceKm: 100, approche: { payante: true, seuilMin: 15 }, horaires: { avanceMinMinutes: 30, avanceMaxJours: 90 },
+  categories: [{ id: "eco", nom: "Éco", coef: 1, pax: 4, bag: 2 }, { id: "berline", nom: "Berline", coef: 1.1, pax: 4, bag: 3 }, { id: "premium", nom: "Berline Premium", coef: 1.4, pax: 3, bag: 3 }, { id: "van", nom: "Van", coef: 1.5, pax: 7, bag: 7 }],
+  supplements: { siegeEnfant: 5, arret: 5, dispoHeure: 35, attenteMin: 0.3, franchiseMin: 6, programmee: 0 }, promos: [], annulation: "" };
+const TT = () => ({ ...TDEF, ...(S.settings?.tarification || {}) });
+const num = id => { const v = Number(String($("#" + id)?.value ?? "").replace(",", ".")); return Number.isFinite(v) && v >= 0 ? v : 0; };
+const rnd = (x, a) => Math.round(x / (a || 0.5)) * (a || 0.5);
+const chk = id => !!$("#" + id)?.checked;
+// Brouillon des listes (codes promo, forfaits, lieux) : modifiées à l'écran puis enregistrées d'un coup
+function tdraft() {
+  if (!S.td) { const T = TT(), F = S.settings?.forfaits || {}; S.td = JSON.parse(JSON.stringify({ promos: T.promos || [], trajets: F.trajets || [], lieux: F.lieux || [] })); }
+  return S.td;
+}
+function readPromos() {
+  const D = tdraft();
+  D.promos = D.promos.map((p, i) => !$("#tp-code-" + i) ? p : { code: $("#tp-code-" + i).value.trim().toUpperCase(), label: $("#tp-label-" + i).value.trim(), type: $("#tp-type-" + i).value,
+    valeur: num("tp-val-" + i), plafond: num("tp-plaf-" + i), minCourse: num("tp-minc-" + i), maxParClient: Math.round(num("tp-mpc-" + i)), maxUtilisations: Math.round(num("tp-mu-" + i)),
+    debut: $("#tp-deb-" + i).value, fin: $("#tp-fin-" + i).value, actif: chk("tp-on-" + i), sousPlancher: chk("tp-sp-" + i) });
+}
+function readTrajets() { const D = tdraft(); D.trajets = D.trajets.map((t, i) => $("#tt-" + i) ? { ...t, prix: num("tt-" + i) } : t); }
+function readLieux() { const D = tdraft(); D.lieux = D.lieux.map((l, i) => $("#tl-r-" + i) ? { ...l, rayon: num("tl-r-" + i) || 1 } : l); }
+async function saveTarif(patch, msg) { await saveSettings({ tarification: { ...TT(), ...patch } }, msg); }
+async function loadHist() {
+  const { data } = await sb.from("tarif_historique").select("*").order("at", { ascending: false }).limit(30);
+  S.hist = data || []; if (S.tab === "tarifs" && !editingForm()) { const h = $("#hist"); if (h) h.innerHTML = histHtml(); }
+}
+const CHAMPS = { tarification: "Tarifs", forfaits: "Forfaits", commission: "Ta part (%)", maxChauffeurs: "Nombre de chauffeurs" };
+function diffs(a, b, pre, out) {
+  const obj = v => v && typeof v === "object" && !Array.isArray(v);
+  if (obj(a) && obj(b)) { for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffs(a[k], b[k], pre ? pre + " › " + k : k, out); return out; }
+  if (JSON.stringify(a) !== JSON.stringify(b)) out.push(`${pre || "valeur"} : ${Array.isArray(a) || Array.isArray(b) ? "liste modifiée" : (a ?? "—") + " → " + (b ?? "—")}`);
+  return out;
+}
+function histHtml() {
+  if (!S.hist) return `<p class="muted small">Chargement…</p>`;
+  if (!S.hist.length) return `<p class="muted small">Aucun changement enregistré.</p>`;
+  return S.hist.map(h => { const d = diffs(h.ancien, h.nouveau, "", []); return `<div class="h"><b>${esc(CHAMPS[h.champ] || h.champ)}</b> · ${new Date(h.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · ${esc(h.admin_nom || "installation")}
+    <div class="muted">${d.slice(0, 6).map(esc).join("<br>")}${d.length > 6 ? `<br>… et ${d.length - 6} autre(s)` : ""}</div></div>`; }).join("");
+}
+function tarifsView() {
+  const T = TT(), sp = { ...TDEF.supplements, ...(T.supplements || {}) }, D = tdraft();
+  const ex = (k, m) => Math.max(T.min, T.base + k * T.km + m * T.minute);
+  const field = (id, label, v, step = "0.01") => `<label class="f" for="${id}">${label}<input id="${id}" class="mono" type="number" inputmode="decimal" step="${step}" min="0" value="${v ?? 0}"></label>`;
+  const box = (id, label, on) => `<label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="${id}" style="width:auto;min-height:0" ${on ? "checked" : ""}> ${label}</label>`;
+  const nomLieu = id => D.lieux.find(l => l.id === id)?.nom || id;
+  const lieuOpts = () => D.lieux.map(l => `<option value="${esc(l.id)}">${esc(l.nom)}</option>`).join("");
+  const used = id => D.trajets.some(t => t.a === id || t.b === id);
+  return `<h2>Tarifs</h2>
+  <p class="muted small">Le serveur calcule chaque prix avec ces réglages : ni les clients ni les chauffeurs ne peuvent le changer. Ordre : 1) forfait s'il existe, sinon prix au km et à la minute · 2) × catégorie · 3) suppléments · 4) code promo · 5) arrondi. Une course réservée garde son prix.</p>
+  <form id="tf-base" class="panel stack" novalidate><h3>Prix de base</h3>
+    <div class="row">${field("tb-base", "Prise en charge (€)", T.base)}${field("tb-min", "Prix minimum (€)", T.min)}</div>
+    <div class="row">${field("tb-km", "Prix au km (€)", T.km)}${field("tb-minute", "Prix à la minute (€)", T.minute)}</div>
+    <div class="row">${field("tb-arr", "Arrondi (€)", T.arrondi)}${field("tb-long", "Longue distance (km)", T.longueDistanceKm, "1")}</div>
+    <div class="facts">${[[5, 12], [15, 25], [30, 40], [60, 60]].map(([k, m]) => `<span class="fact">${k} km · ${m} min → <b>${eur(rnd(ex(k, m), T.arrondi))}</b></span>`).join("")}</div>
+    <p class="muted small">Prix = prise en charge + km × prix au km + minutes × prix à la minute, jamais moins que le minimum. Exemples en Éco (×1).</p>
+    <h3>Approche et horaires</h3>
+    ${box("tb-appay", "Faire payer le trajet du chauffeur quand il est loin du client", T.approche?.payante !== false)}
+    <div class="row">${field("tb-apseuil", "Approche offerte (min)", T.approche?.seuilMin ?? 15, "1")}${field("tb-avmin", "Réserver au moins … min avant", T.horaires?.avanceMinMinutes ?? 30, "1")}</div>
+    ${field("tb-avmax", "Réserver au plus … jours avant", T.horaires?.avanceMaxJours ?? 90, "1")}
+    <button class="big" type="submit">Enregistrer</button></form>
+  <form id="tf-cats" class="panel stack" novalidate><h3>Catégories de véhicules</h3>
+    <div class="tbl"><table class="ftbl"><thead><tr><th>Catégorie</th><th>×</th><th>Pers.</th><th>Bag.</th><th>On</th></tr></thead><tbody>
+    ${(T.categories || []).map((c, i) => `<tr><td>${esc(c.nom)}</td><td><input class="mini mono" id="tc-coef-${i}" type="number" inputmode="decimal" step="0.05" min="0.1" value="${c.coef}"></td><td><input class="mini mono" id="tc-pax-${i}" type="number" inputmode="numeric" min="1" value="${c.pax}"></td><td><input class="mini mono" id="tc-bag-${i}" type="number" inputmode="numeric" min="0" value="${c.bag}"></td><td><input type="checkbox" id="tc-on-${i}" style="width:auto;min-height:0" ${c.actif !== false ? "checked" : ""} aria-label="${esc(c.nom)} proposée"></td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted small">× = coefficient du prix (1,10 = 10 % plus cher). Une catégorie n'est jamais proposée si elle n'a pas assez de places. La catégorie de chaque chauffeur se règle dans Équipe.</p>
+    <button class="big" type="submit">Enregistrer</button></form>
+  <form id="tf-sup" class="panel stack" novalidate><h3>Suppléments</h3>
+    <p class="muted small">Toujours choisis par le client et affichés avant la réservation. 0 = pas proposé.</p>
+    <div class="row">${field("ts-siege", "Siège enfant (€)", sp.siegeEnfant)}${field("ts-arret", "Arrêt en route (€)", sp.arret)}</div>
+    <div class="row">${field("ts-dispo", "Mise à dispo (€/h)", sp.dispoHeure)}${field("ts-prog", "Résa à l'avance (€)", sp.programmee)}</div>
+    <div class="row">${field("ts-fr", "Attente offerte (min)", sp.franchiseMin, "1")}${field("ts-att", "Puis attente (€/min)", sp.attenteMin)}</div>
+    <label class="f" for="ts-ann">Conditions d'annulation (montrées au client)<textarea id="ts-ann">${esc(T.annulation || "")}</textarea></label>
+    <button class="big" type="submit">Enregistrer</button></form>
+  <form id="tf-promo" class="panel stack" novalidate><h3>Codes promo</h3>
+    <p class="muted small">Une remise ne fait jamais passer la course sous le prix minimum, sauf si tu coches la case.</p>
+    ${D.promos.length ? D.promos.map((p, i) => `<div class="ride stack" style="gap:8px">
+      <div class="row"><label class="f" for="tp-code-${i}">Code<input id="tp-code-${i}" class="mono" autocapitalize="characters" autocomplete="off" value="${esc(p.code || "")}"></label><label class="f" for="tp-label-${i}">Nom affiché<input id="tp-label-${i}" value="${esc(p.label || "")}"></label></div>
+      <div class="row"><label class="f" for="tp-type-${i}">Type<select id="tp-type-${i}"><option value="pct" ${p.type !== "fixe" ? "selected" : ""}>En %</option><option value="fixe" ${p.type === "fixe" ? "selected" : ""}>En €</option></select></label>${field("tp-val-" + i, "Valeur", p.valeur)}</div>
+      <div class="row">${field("tp-plaf-" + i, "Remise max (€, 0 = sans)", p.plafond)}${field("tp-minc-" + i, "Course minimum (€)", p.minCourse)}</div>
+      <div class="row">${field("tp-mpc-" + i, "Fois par client (0 = ∞)", p.maxParClient, "1")}${field("tp-mu-" + i, "Utilisations max (0 = ∞)", p.maxUtilisations, "1")}</div>
+      <div class="row"><label class="f" for="tp-deb-${i}">Début<input id="tp-deb-${i}" type="date" value="${esc(p.debut || "")}"></label><label class="f" for="tp-fin-${i}">Fin<input id="tp-fin-${i}" type="date" value="${esc(p.fin || "")}"></label></div>
+      ${box("tp-on-" + i, "<b>Actif</b>", p.actif !== false)}${box("tp-sp-" + i, "Autoriser sous le prix minimum", !!p.sousPlancher)}
+      <div><button type="button" class="link" data-tp-del="${i}" style="color:var(--bad)">Supprimer ce code</button></div></div>`).join("") : `<p class="muted small">Aucun code.</p>`}
+    <button type="button" class="ghost" id="tp-add">+ Ajouter un code</button>
+    <button class="big" type="submit">Enregistrer les codes</button></form>
+  <form id="tf-traj" class="panel stack" novalidate><h3>Forfaits entre deux lieux</h3>
+    <p class="muted small">Prix fixe dans les deux sens, prioritaire sur la grille par département. Prix Éco : la catégorie s'applique en plus.</p>
+    <div class="tbl"><table class="ftbl"><thead><tr><th>Trajet</th><th>Prix €</th><th></th></tr></thead><tbody>
+    ${D.trajets.map((t, i) => `<tr><td>${esc(nomLieu(t.a))} ↔ ${esc(nomLieu(t.b))}${t.min ? `<br><small class="muted">fourchette ${t.min}–${t.max} €</small>` : ""}</td><td><input class="mini mono" id="tt-${i}" type="number" inputmode="decimal" min="0" value="${t.prix}"></td><td><button type="button" class="link" data-tt-del="${i}" aria-label="Supprimer ce forfait" style="color:var(--bad)">✕</button></td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="row"><label class="f" for="tt-a">De<select id="tt-a">${lieuOpts()}</select></label><label class="f" for="tt-b">À<select id="tt-b">${lieuOpts()}</select></label></div>
+    <div class="row">${field("tt-prix", "Prix (€)", "")}<div style="align-self:end"><button type="button" class="ghost" id="tt-add">+ Ajouter</button></div></div>
+    <button class="big" type="submit">Enregistrer les forfaits</button></form>
+  <form id="tf-lieux" class="panel stack" novalidate><h3>Lieux des forfaits</h3>
+    <p class="muted small">Un lieu = un point + un rayon. Une adresse à moins de « rayon » km du point compte comme ce lieu. Ajoute par exemple Lille ou Reims pour créer des forfaits longue distance.</p>
+    <div class="tbl"><table class="ftbl"><thead><tr><th>Lieu</th><th>Rayon km</th><th></th></tr></thead><tbody>
+    ${D.lieux.map((l, i) => `<tr><td>${esc(l.nom)}</td><td><input class="mini mono" id="tl-r-${i}" type="number" inputmode="decimal" step="0.5" min="0.5" value="${l.rayon}"></td><td>${used(l.id) ? "" : `<button type="button" class="link" data-tl-del="${i}" aria-label="Supprimer ce lieu" style="color:var(--bad)">✕</button>`}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="row"><label class="f" for="tl-nom">Nom du lieu<input id="tl-nom" placeholder="ex. Lille centre" autocomplete="off"></label>${field("tl-rayon", "Rayon (km)", 3, "0.5")}</div>
+    <div class="ac"><label class="f" for="tl-addr">Adresse du point central<input id="tl-addr" placeholder="Rechercher une adresse" autocomplete="off"></label><div class="sugg" id="tl-sugg" hidden></div></div>
+    <p class="small muted" id="tl-picked">${S.tlPick ? "Point choisi : " + esc(S.tlPick.label) : ""}</p>
+    <button type="button" class="ghost" id="tl-add">+ Ajouter ce lieu</button>
+    <button class="big" type="submit">Enregistrer les lieux</button></form>
+  ${forfaitsForm()}
+  <section class="panel stack"><h3>Historique des changements</h3><div class="hist" id="hist">${histHtml()}</div></section>`;
+}
+function bindTarifs() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  $("#tf-base")?.addEventListener("submit", e => {
+    e.preventDefault(); const T = TT();
+    if (!(num("tb-km") > 0)) return toast("Indique un prix au km");
+    saveTarif({ base: num("tb-base"), min: num("tb-min"), km: num("tb-km"), minute: num("tb-minute"), arrondi: num("tb-arr") || 0.5, longueDistanceKm: Math.round(num("tb-long")) || 100,
+      approche: { ...(T.approche || {}), payante: chk("tb-appay"), seuilMin: Math.round(num("tb-apseuil")) },
+      horaires: { avanceMinMinutes: Math.round(num("tb-avmin")), avanceMaxJours: Math.max(1, Math.round(num("tb-avmax"))) } }, "Prix de base enregistrés");
+  });
+  $("#tf-cats")?.addEventListener("submit", e => {
+    e.preventDefault(); const cats = TT().categories.map((c, i) => ({ ...c, coef: num("tc-coef-" + i) || 1, pax: Math.max(1, Math.round(num("tc-pax-" + i))), bag: Math.round(num("tc-bag-" + i)), actif: chk("tc-on-" + i) }));
+    if (!cats.some(c => c.actif)) return toast("Garde au moins une catégorie active");
+    saveTarif({ categories: cats }, "Catégories enregistrées");
+  });
+  $("#tf-sup")?.addEventListener("submit", e => {
+    e.preventDefault();
+    saveTarif({ supplements: { siegeEnfant: num("ts-siege"), arret: num("ts-arret"), dispoHeure: num("ts-dispo"), programmee: num("ts-prog"), franchiseMin: Math.round(num("ts-fr")), attenteMin: num("ts-att") },
+      annulation: $("#ts-ann").value.trim() }, "Suppléments enregistrés");
+  });
+  $("#tp-add")?.addEventListener("click", () => { readPromos(); tdraft().promos.push({ code: "", label: "", type: "pct", valeur: 10, plafond: 0, minCourse: 0, maxParClient: 1, maxUtilisations: 0, debut: "", fin: "", actif: true, sousPlancher: false }); render(); });
+  on("[data-tp-del]", "click", e => { readPromos(); tdraft().promos.splice(+e.currentTarget.dataset.tpDel, 1); render(); });
+  $("#tf-promo")?.addEventListener("submit", e => {
+    e.preventDefault(); readPromos(); const P = tdraft().promos;
+    if (P.some(p => !/^[A-Z0-9_-]{3,20}$/.test(p.code))) return toast("Chaque code : 3 à 20 lettres ou chiffres, sans espace");
+    if (new Set(P.map(p => p.code)).size !== P.length) return toast("Deux codes identiques");
+    if (P.some(p => p.type === "pct" && p.valeur > 100)) return toast("Un pourcentage ne peut pas dépasser 100");
+    saveTarif({ promos: P }, "Codes promo enregistrés");
+  });
+  $("#tt-add")?.addEventListener("click", () => {
+    readTrajets(); const a = $("#tt-a").value, b = $("#tt-b").value, prix = num("tt-prix");
+    if (!a || !b || a === b) return toast("Choisis deux lieux différents");
+    if (!(prix > 0)) return toast("Indique un prix");
+    const D = tdraft(); if (D.trajets.some(t => (t.a === a && t.b === b) || (t.a === b && t.b === a))) return toast("Ce forfait existe déjà : change son prix dans la liste");
+    D.trajets.push({ a, b, prix }); render();
+  });
+  on("[data-tt-del]", "click", e => { readTrajets(); tdraft().trajets.splice(+e.currentTarget.dataset.ttDel, 1); render(); });
+  $("#tf-traj")?.addEventListener("submit", e => { e.preventDefault(); readTrajets(); readLieux(); const D = tdraft(); saveSettings({ forfaits: { ...(S.settings.forfaits || {}), trajets: D.trajets, lieux: D.lieux } }, "Forfaits enregistrés").then(() => { S.td = null; render(); }); });
+  $("#tf-lieux")?.addEventListener("submit", e => { e.preventDefault(); readTrajets(); readLieux(); const D = tdraft(); saveSettings({ forfaits: { ...(S.settings.forfaits || {}), trajets: D.trajets, lieux: D.lieux } }, "Lieux enregistrés").then(() => { S.td = null; render(); }); });
+  on("[data-tl-del]", "click", e => { readLieux(); readTrajets(); tdraft().lieux.splice(+e.currentTarget.dataset.tlDel, 1); render(); });
+  // Recherche d'adresse pour un nouveau lieu
+  const ad = $("#tl-addr"), sg = $("#tl-sugg"); let t, seq = 0;
+  ad?.addEventListener("input", () => { clearTimeout(t); t = setTimeout(async () => {
+    const my = ++seq, pop = populaires(ad.value), res = [...pop, ...(ad.value.trim().length >= 3 ? await searchPlaces(ad.value).catch(() => []) : [])].slice(0, 6);
+    if (my !== seq) return; if (!res.length) { sg.hidden = true; return; }
+    sg.innerHTML = res.map((p, i) => `<button type="button" data-i="${i}">${esc(p.main)}<small>${esc(p.sub)}</small></button>`).join(""); sg.hidden = false;
+    sg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { const p = res[+b.dataset.i]; S.tlPick = p; ad.value = p.label; sg.hidden = true; $("#tl-picked").textContent = "Point choisi : " + p.label; if (!$("#tl-nom").value.trim()) $("#tl-nom").value = p.main; }));
+  }, 300); });
+  ad?.addEventListener("blur", () => setTimeout(() => { if (sg) sg.hidden = true; }, 200));
+  $("#tl-add")?.addEventListener("click", () => {
+    const nom = $("#tl-nom").value.trim(), p = S.tlPick;
+    if (!nom) return toast("Donne un nom au lieu"); if (!p) return toast("Choisis l'adresse dans la liste");
+    readLieux(); readTrajets();
+    const id = nom.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Math.random().toString(36).slice(2, 5);
+    tdraft().lieux.push({ id, nom, lat: Math.round(p.lat * 1e5) / 1e5, lng: Math.round(p.lng * 1e5) / 1e5, rayon: num("tl-rayon") || 3 }); S.tlPick = null; render();
+  });
+}
 function bind() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
   on("[data-status]", "click", e => setStatus(e.currentTarget.dataset.status));
@@ -581,6 +760,27 @@ function bind() {
     if (error) return toast("Suppression impossible");
     S.bookings = S.bookings.filter(x => x.id !== btn.dataset.del); toast("Course supprimée"); render(); syncMap(false);
   });
+  // Correction du km / prix d'une course (compte principal uniquement)
+  on("[data-fix]", "click", e => { S.fix = e.currentTarget.dataset.fix; render(); });
+  on("[data-fix-close]", "click", () => { S.fix = null; render(); });
+  on("[data-fix-form]", "submit", async e => {
+    e.preventDefault(); const id = e.currentTarget.dataset.fixForm, b = S.bookings.find(x => x.id === id); if (!b) return;
+    const km = Number(String($("#fix-km").value).replace(",", ".")), prix = Number(String($("#fix-prix").value).replace(",", "."));
+    if (!(km >= 0) || !(prix >= 0)) return toast("Valeurs invalides");
+    const doc = docOf(b); doc.km = km; doc.prix = prix; doc.prixCorrige = { avant: b.prix, at: Date.now() };
+    const { error } = await sb.from("bookings").update({ doc }).eq("id", id);
+    if (error) return toast("Correction impossible");
+    S.fix = null; toast("Course corrigée"); render();
+  });
+  on("[data-tab-go]", "click", e => { S.tab = e.currentTarget.dataset.tabGo; S.td = null; loadHist(); render(); window.scrollTo(0, 0); });
+  on("[data-dcat]", "change", async e => {
+    const id = e.currentTarget.dataset.dcat, categorie = e.currentTarget.value;
+    const { error } = await sb.from("drivers").update({ categorie }).eq("id", id);
+    if (error) return toast("Enregistrement impossible");
+    S.team = S.team.map(x => x.id === id ? { ...x, categorie } : x); if (S.teamList) S.teamList = S.teamList.map(x => x.id === id ? { ...x, categorie } : x);
+    toast("Catégorie : " + CATS[categorie]);
+  });
+  if (S.tab === "tarifs") bindTarifs();
   // Équipe
   on("[data-edit]", "click", e => { S.edit = e.currentTarget.dataset.edit; S.pw = null; S.add = false; S.teamMsg = ""; render(); });
   on("[data-pw]", "click", e => { S.pw = e.currentTarget.dataset.pw; S.edit = null; S.add = false; S.teamMsg = ""; render(); });
@@ -671,16 +871,10 @@ function bind() {
     if (!f.prenom) return toast("Le prénom est obligatoire");
     try { await writeMe(f); if (isAdmin()) await writeSettings({ revtag: f.revtag }).catch(() => { }); toast("Enregistré"); render(); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
   });
-  $("#tarif-form")?.addEventListener("submit", e => {
-    e.preventDefault(); const T = tarifOf(S.settings), tiers = []; let prev = 0;
-    for (let i = 0; i < T.tiers.length; i++) {
-      const last = i === T.tiers.length - 1, rate = parseFloat(String($("#tr-" + i).value).replace(",", "."));
-      if (!(rate >= 0)) { S.err = "Indiquez un prix au km pour chaque ligne."; return render(); }
-      if (last) { tiers.push({ upto: null, rate }); break; }
-      const upto = parseFloat($("#tu-" + i).value); if (!(upto > prev)) { S.err = "Chaque distance doit être plus grande que la précédente (" + prev + " km)."; return render(); }
-      tiers.push({ upto, rate }); prev = upto;
-    }
-    S.err = ""; saveSettings({ tarif: { tiers, min: Math.max(0, parseFloat($("#t-min").value) || 0), approche: Math.max(0, parseInt($("#t-ap").value) || 0) } }, "Tarifs enregistrés");
+  $("#fx-form")?.addEventListener("submit", e => {
+    e.preventDefault(); const F = S.settings.forfaits;
+    const prix = F.prix.map((r, i) => { const n = { ...r }; F.aeroports.forEach(a => { n[a.code] = Math.max(0, Math.round(Number(String($(`#fx-${i}-${a.code}`).value).replace(",", ".")) || 0)); }); return n; });
+    saveSettings({ forfaits: { ...F, prix } }, "Grille enregistrée");
   });
   $("#pay-form")?.addEventListener("submit", e => {
     e.preventDefault();
