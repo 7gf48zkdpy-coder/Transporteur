@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Transporteur Chauffeur</title>
+<meta name="theme-color" content="#0d0d0c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chauffeur">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest-chauffeur.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="pwa.js" defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="band"><div class="in" id="band"></div></div>
+<div class="mapbox" id="mapbox" hidden><div class="map" id="map"></div><div class="chip" id="dchip"></div><button class="locbtn" id="locbtn" aria-label="Recentrer"></button></div>
+<div class="sheet"><div class="wrap"><main id="app" class="stack"><div class="loading">Chargement…</div></main></div></div>
+<nav class="bnav" id="bnav" hidden></nav>
+
+<script type="module">
+import { sb, watchSettings, watchTable, rowToBooking, configured, DEFAULT_SETTINGS, $, esc, todayISO, nowHM, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
+  tarifOf, priceFor, reverse, createMap, markerEl, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+
+$("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
+$("#locbtn").innerHTML = IC.locate;
+
+const S = { user: null, ok: false, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir", me: null, err: "", seen: null };
+const driver = () => ({ status: "off", ...(S.settings?.driver || {}) });
+async function writeSettings(patch) {
+  const next = { ...(S.settings || {}), ...patch };
+  const { error } = await sb.from("settings").update({ doc: next }).eq("id", 1);
+  if (error) throw error; S.settings = next;
+}
+async function saveSettings(patch, msg) { try { await writeSettings(patch); if (msg) toast(msg); render(); syncMap(false); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); } }
+
+/* ---------- carte ---------- */
+let map = null; const M = { me: null, picks: [] };
+function ensureMap() {
+  if (map) return; $("#mapbox").hidden = false;
+  map = createMap($("#map"));
+  map.on("load", () => { syncMap(true); });
+}
+function syncMap(fit) {
+  if (!map) return;
+  const d = driver(), me = S.me || (d.lat ? { lat: d.lat, lng: d.lng } : null);
+  if (me) { if (!M.me) M.me = new maplibregl.Marker({ element: markerEl("car") }).setLngLat([me.lng, me.lat]).addTo(map); else M.me.setLngLat([me.lng, me.lat]); }
+  M.picks.forEach(m => m.remove()); M.picks = [];
+  const active = S.bookings.filter(b => (b.statut === "en_attente" || b.statut === "confirmee") && b.date === todayISO() && b.depart?.lat);
+  active.forEach(b => M.picks.push(new maplibregl.Marker({ element: markerEl("pick") }).setLngLat([b.depart.lng, b.depart.lat]).addTo(map)));
+  if (fit) fitTo(map, [me, ...active.map(b => b.depart)]);
+  const [cls, txt] = d.status === "dispo" ? ["dispo", "En ligne"] : d.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
+  $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}`;
+}
+$("#locbtn").addEventListener("click", () => { const p = S.me; if (p && map) map.easeTo({ center: [p.lng, p.lat], zoom: 14 }); else toast("Passez en ligne pour activer votre position"); });
+
+/* ---------- GPS en direct ---------- */
+let watchId = null, lastSent = { t: 0, lat: 0, lng: 0 }, wake = null, audio = null;
+const dist = (a, b) => { const R = 6371e3, r = x => x * Math.PI / 180; const dLa = r(b.lat - a.lat), dLo = r(b.lng - a.lng); const h = Math.sin(dLa / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+function startGPS() {
+  if (watchId != null || !navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(p => {
+    S.me = { lat: p.coords.latitude, lng: p.coords.longitude };
+    const now = Date.now(), moved = dist(lastSent, S.me);
+    if (now - lastSent.t > 30000 || moved > 80) {
+      lastSent = { t: now, ...S.me };
+      writeSettings({ driver: { ...driver(), lat: S.me.lat, lng: S.me.lng, at: now } }).catch(() => { });
+    }
+    syncMap(!M.me);
+  }, e => { toast(e.code === 1 ? "Autorisez la localisation pour être visible des clients." : "Position GPS introuvable pour le moment."); },
+  { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+  if ("wakeLock" in navigator) navigator.wakeLock.request("screen").then(w => wake = w).catch(() => { });
+}
+function stopGPS() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; wake?.release?.().catch(() => { }); wake = null; }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && driver().status !== "off") { stopGPS(); startGPS(); } });
+function beep() {
+  try { if (!audio) audio = new AudioContext(); const o = audio.createOscillator(), g = audio.createGain(); o.connect(g); g.connect(audio.destination);
+    o.frequency.value = 880; g.gain.setValueAtTime(.001, audio.currentTime); g.gain.exponentialRampToValueAtTime(.4, audio.currentTime + .02); g.gain.exponentialRampToValueAtTime(.001, audio.currentTime + .6); o.start(); o.stop(audio.currentTime + .6); } catch { }
+  navigator.vibrate?.([200, 100, 200]);
+}
+async function setStatus(status) {
+  if (status !== "off") { try { if (!audio) audio = new AudioContext(); } catch { } startGPS(); } else stopGPS();
+  await saveSettings({ driver: { ...driver(), status, ...(status === "off" ? {} : S.me ? { lat: S.me.lat, lng: S.me.lng, at: Date.now() } : {}) } },
+    status === "dispo" ? "Vous êtes en ligne" : status === "course" ? "En course" : "Vous êtes hors ligne");
+}
+
+/* ---------- écrans ---------- */
+function render() {
+  const app = $("#app");
+  if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = loginView(); bindLogin(); return; }
+  if (!S.ok) { app.innerHTML = `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas celui du chauffeur.</p><button class="ghost" id="out">Se déconnecter</button></div>`; $("#out").onclick = () => sb.auth.signOut(); return; }
+  if (!S.settings) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
+  ensureMap();
+  $("#who").textContent = "";
+  const pending = S.bookings.filter(b => b.statut === "en_attente").length;
+  const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav");
+  nav.innerHTML = `<div class="in" role="tablist">${[["resa", "Courses", IC.car], ["clients", "Clients", IC.users], ["reglages", "Réglages", IC.sliders]].map(([k, l, ic]) =>
+    `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : ""}</button>`).join("")}</div>`;
+  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+  app.innerHTML = S.tab === "resa" ? coursesView() : S.tab === "clients" ? clientsView() : reglagesView();
+  bind();
+}
+
+function loginView() {
+  return `<form id="login" class="panel stack" novalidate style="margin-top:20px"><h2>Connexion chauffeur</h2>
+    <label class="f" for="l-mail">E-mail<input id="l-mail" type="email" autocomplete="username" value=""></label>
+    <label class="f" for="l-pass">Mot de passe<input id="l-pass" type="password" autocomplete="current-password"></label>
+    ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+    <button class="big" type="submit">Se connecter</button></form>`;
+}
+function bindLogin() {
+  $("#login").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: $("#l-mail").value.trim(), password: $("#l-pass").value });
+    if (error) { S.err = "E-mail ou mot de passe incorrect."; render(); } else S.err = "";
+  });
+}
+
+function coursesView() {
+  const d = driver(), on = d.status !== "off", all = S.bookings;
+  let list = all;
+  if (S.filter === "attente") list = all.filter(b => b.statut === "en_attente");
+  else if (S.filter === "avenir") list = all.filter(b => b.statut === "en_attente" || b.statut === "confirmee");
+  list = [...list].sort((a, b) => S.filter === "toutes" ? (b.createdAtMs || 0) - (a.createdAtMs || 0) : (a.date + a.time).localeCompare(b.date + b.time));
+  // Une course compte le jour où elle est terminée (pas le jour prévu)
+  const doneDay = b => { if (b.termineeAt) { const d = new Date(b.termineeAt); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); } return b.date; };
+  const done = all.filter(b => b.statut === "terminee");
+  const doneToday = done.filter(b => doneDay(b) === todayISO());
+  const doneMonth = done.filter(b => doneDay(b).slice(0, 7) === todayISO().slice(0, 7));
+  const sum = l => l.reduce((s, b) => s + (Number(b.prix) || 0), 0);
+  const pending = all.filter(b => b.statut === "en_attente").length;
+  return `
+  <section class="panel online ${d.status}">
+    <div style="display:flex;align-items:center;gap:12px"><span class="dot d-${d.status}" style="width:14px;height:14px"></span>
+      <div><p class="state">${d.status === "dispo" ? "En ligne" : d.status === "course" ? "En course" : "Hors ligne"}</p>
+      <p class="muted small">${d.status === "dispo" ? "Les clients vous voient sur la carte et peuvent vous demander." : d.status === "course" ? "Course en cours. Les clients voient que vous êtes occupé." : "Les clients peuvent seulement réserver pour plus tard."}</p></div></div>
+    ${d.status === "course" ? `<button class="big ghost" data-status="dispo">Je suis libre</button>` : `<button class="big ${on ? "ghost" : "go"}" data-status="${on ? "off" : "dispo"}">${on ? "Passer hors ligne" : "Passer en ligne"}</button>`}
+    ${on ? `<p class="muted small">Position GPS ${d.at ? "envoyée " + ago(d.at) : "en attente…"}. Gardez cette page ouverte pendant votre service.</p>` : ""}
+  </section>
+  <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${doneToday.length}</div><div class="k">faite${doneToday.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(doneToday))}</div><div class="k">gagné aujourd'hui</div></div></div>
+  <p class="muted small center">Ce mois-ci : <b>${doneMonth.length}</b> course${doneMonth.length > 1 ? "s" : ""} · <b>${eur(sum(doneMonth))}</b> · Total : ${done.length} course${done.length > 1 ? "s" : ""} · ${eur(sum(done))}</p>
+  <div class="filters">${[["avenir", "À venir"], ["attente", "À accepter"], ["toutes", "Toutes"]].map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
+  ${list.length ? list.map(rideCard).join("") : `<div class="empty">Aucune course ici. Les demandes arrivent ici dès qu'un client réserve.</div>`}`;
+}
+function rideCard(b) {
+  const live = b.statut === "en_attente" || b.statut === "confirmee";
+  const tel = String(b.clientTel || "").replace(/\s/g, "");
+  return `<article class="ride ${b.statut === "en_attente" ? "new" : ""}">
+    <div class="between"><span class="when">${b.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(b.date)} · ${esc(b.time)}</span><span class="pill s-${b.statut}">${STATUS[b.statut] || b.statut}</span></div>
+    <div class="client"><div><div class="nm">${esc(b.clientPrenom)} ${esc(b.clientNom)}</div><div class="mono small">${esc(b.clientTel)}</div></div>
+      <div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(tel)}">Appeler</a><button class="ghost sm" data-copy="${esc(b.clientTel)}">Copier</button></div></div>
+    <div class="route"><span class="pin"></span><span>${esc(b.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(b.arrivee?.label)}</span></div>
+    <div class="between"><div class="facts"><span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "CB virement" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
+    ${b.note ? `<p class="small muted">« ${esc(b.note)} »</p>` : ""}
+    ${live ? `<div class="actions"><a class="navbtn waze" href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a class="navbtn" href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a></div>
+      ${b.depart?.lat && b.arrivee?.lat ? `<div class="navlinks"><a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a></div>` : ""}` : ""}
+    <div class="actions">
+      ${b.statut === "en_attente" ? `<button data-st="${b.id}|confirmee">Accepter</button><button class="danger" data-st="${b.id}|annulee">Refuser</button>` : ""}
+      ${b.statut === "confirmee" ? `<button data-st="${b.id}|terminee">Course terminée</button><button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
+      ${b.statut === "annulee" ? `<button class="link" data-st="${b.id}|en_attente">Remettre en attente</button>` : ""}
+    </div>
+    <p class="muted small mono">Réf. ${esc(b.ref)}</p></article>`;
+}
+function clientsView() {
+  const count = {}; S.bookings.forEach(b => { if (b.statut !== "annulee") count[b.clientUid] = (count[b.clientUid] || 0) + 1; });
+  const cl = [...S.clients].sort((a, b) => (a.nom || "").localeCompare(b.nom || ""));
+  return `<h2>Mes clients</h2>` + (cl.length ? cl.map(c => `<div class="client" style="background:var(--surface);box-shadow:var(--shadow)"><div><div class="nm">${esc(c.prenom)} ${esc(c.nom)}</div><div class="mono small">${esc(c.tel)} · ${count[c.id] || 0} course(s)</div></div><div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(String(c.tel).replace(/\s/g, ""))}">Appeler</a><button class="ghost sm" data-copy="${esc(c.tel)}">Copier</button></div></div>`).join("") : `<div class="empty">Aucun client pour l'instant.</div>`);
+}
+function reglagesView() {
+  const s = { ...DEFAULT_SETTINGS, ...S.settings }, T = tarifOf(S.settings);
+  return `<h2>Réglages</h2>
+  <form id="tarif-form" class="panel stack" novalidate><h3>Prix au kilomètre</h3>
+    <p class="muted small">Plus la course est longue, moins le km est cher. Une course plus longue ne coûte jamais moins cher qu'une plus courte.</p>
+    <div class="tbl"><table><thead><tr><th>Distance</th><th>€ / km</th></tr></thead><tbody>
+    ${T.tiers.map((t, i) => { const from = i ? T.tiers[i - 1].upto : 0; return `<tr><td>${t.upto == null ? `Au-delà de ${from} km` : `${from} à <input class="mini mono" id="tu-${i}" type="number" inputmode="decimal" min="1" value="${t.upto}"> km`}</td><td><input class="mini mono" id="tr-${i}" type="number" inputmode="decimal" step="0.01" min="0" value="${Number(t.rate).toFixed(2)}"></td></tr>`; }).join("")}
+    </tbody></table></div>
+    <div class="row"><label class="f" for="t-min">Prix minimum (€)<input id="t-min" class="mono" type="number" inputmode="decimal" min="0" value="${T.min || 0}"></label>
+    <label class="f" for="t-ap">Approche offerte (min)<input id="t-ap" class="mono" type="number" inputmode="numeric" min="0" value="${T.approche}"></label></div>
+    <div class="facts">${[5, 15, 30, 60, 100].map(k => `<span class="fact">${k} km → <b>${eur(priceFor(k, T))}</b></span>`).join("")}</div>
+    ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+    <button class="big" type="submit">Enregistrer les tarifs</button></form>
+  <form id="pay-form" class="panel stack"><h3>Paiement par carte (virement)</h3>
+    <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
+    <label class="f" for="p-iban">IBAN<input id="p-iban" class="mono" value="${esc(s.iban || "")}"></label>
+    <div class="row"><label class="f" for="p-bic">BIC<input id="p-bic" class="mono" value="${esc(s.bic || "")}"></label><label class="f" for="p-banque">Banque<input id="p-banque" value="${esc(s.banque || "")}"></label></div>
+    <button class="big" type="submit">Enregistrer</button></form>
+  <div class="panel stack"><h3>Liens</h3><p class="small">Lien à donner à vos clients :</p><p class="mono small" style="word-break:break-all">${esc(location.origin + location.pathname.replace(/chauffeur\.html$/, ""))}</p>
+    <div class="actions"><button class="ghost sm" id="copy-link">Copier le lien client</button><button class="ghost sm" id="logout">Se déconnecter</button></div></div>
+  <form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
+}
+
+function bind() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  on("[data-status]", "click", e => setStatus(e.currentTarget.dataset.status));
+  on("[data-filter]", "click", e => { S.filter = e.currentTarget.dataset.filter; render(); });
+  on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
+  on("[data-st]", "click", async e => {
+    const [id, st] = e.currentTarget.dataset.st.split("|"), b = S.bookings.find(x => x.id === id);
+    try {
+      const patch = { statut: st };
+      if (b) { const { id: _i, statut: _s, clientUid: _c, ...doc } = b; doc.termineeAt = st === "terminee" ? Date.now() : null; patch.doc = doc; }
+      const { error } = await sb.from("bookings").update(patch).eq("id", id); if (error) throw error;
+      toast(st === "confirmee" ? "Course acceptée" : st === "terminee" ? "Course terminée" : st === "annulee" ? "Course annulée" : "Remise en attente");
+      const d = driver();
+      if (st === "confirmee" && b?.mode === "immediat" && d.status === "dispo") setStatus("course");
+      else if (st === "terminee" && d.status === "course") setStatus("dispo");
+    } catch { toast("Mise à jour impossible"); }
+  });
+  $("#tarif-form")?.addEventListener("submit", e => {
+    e.preventDefault(); const T = tarifOf(S.settings), tiers = []; let prev = 0;
+    for (let i = 0; i < T.tiers.length; i++) {
+      const last = i === T.tiers.length - 1, rate = parseFloat(String($("#tr-" + i).value).replace(",", "."));
+      if (!(rate >= 0)) { S.err = "Indiquez un prix au km pour chaque ligne."; return render(); }
+      if (last) { tiers.push({ upto: null, rate }); break; }
+      const upto = parseFloat($("#tu-" + i).value); if (!(upto > prev)) { S.err = "Chaque distance doit être plus grande que la précédente (" + prev + " km)."; return render(); }
+      tiers.push({ upto, rate }); prev = upto;
+    }
+    S.err = ""; saveSettings({ tarif: { tiers, min: Math.max(0, parseFloat($("#t-min").value) || 0), approche: Math.max(0, parseInt($("#t-ap").value) || 0) } }, "Tarifs enregistrés");
+  });
+  $("#pay-form")?.addEventListener("submit", e => {
+    e.preventDefault();
+    saveSettings({ titulaire: $("#p-tit").value.trim(), iban: $("#p-iban").value.trim().toUpperCase(), bic: $("#p-bic").value.trim().toUpperCase(), banque: $("#p-banque").value.trim() }, "Enregistré");
+  });
+  $("#copy-link")?.addEventListener("click", () => copy(location.origin + location.pathname.replace(/chauffeur\.html$/, "")));
+  $("#logout")?.addEventListener("click", async () => { await setStatus("off"); sb.auth.signOut(); });
+  $("#pw-form")?.addEventListener("submit", async e => {
+    e.preventDefault(); const pw = $("#pw-new").value;
+    if (pw.length < 8) return toast("8 caractères minimum");
+    const { error } = await sb.auth.updateUser({ password: pw });
+    toast(error ? "Changement impossible : " + (error.message || "réessayez") : "Mot de passe changé"); if (!error) $("#pw-new").value = "";
+  });
+}
+
+/* ---------- démarrage ---------- */
+if (!configured) notConfiguredScreen($("#app"));
+else {
+  let subs = [], current;  // undefined au départ : le premier appel affiche toujours un écran
+  const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  async function onUser(user) {
+    if ((user?.id || null) === current) return; current = user?.id || null;
+    subs.forEach(c => sb.removeChannel(c)); subs = [];
+    S.user = user || null; S.ok = false;
+    if (!user || user.is_anonymous) { S.user = null; render(); return; }
+    const { data: isDriver } = await sb.rpc("is_driver");
+    S.ok = isDriver === true;
+    if (!S.ok) { render(); return; }
+    subs.push(watchSettings(doc => {
+      const first = !S.settings; S.settings = doc || {};
+      if (first && driver().status !== "off") startGPS();
+      if (first || !typing()) render(); syncMap(false);
+    }));
+    subs.push(watchTable("bookings", async () => {
+      const { data, error } = await sb.from("bookings").select("*").order("created_at", { ascending: false }).limit(500);
+      if (error) throw error; return data.map(rowToBooking);
+    }, rows => {
+      S.bookings = rows;
+      const pend = new Set(rows.filter(b => b.statut === "en_attente").map(b => b.id));
+      if (S.seen) { const fresh = [...pend].filter(id => !S.seen.has(id)); if (fresh.length) { beep(); toast("Nouvelle demande de course"); } }
+      S.seen = pend;
+      if (!typing()) render(); syncMap(false);
+    }));
+    subs.push(watchTable("clients", async () => {
+      const { data, error } = await sb.from("clients").select("*"); if (error) throw error; return data;
+    }, rows => { S.clients = rows; if (S.tab === "clients" && !typing()) render(); }));
+  }
+  sb.auth.getSession().then(({ data }) => onUser(data.session?.user));
+  sb.auth.onAuthStateChange((_e, session) => { setTimeout(() => onUser(session?.user), 0); });
+}
+</script>
+</body>
+</html>
