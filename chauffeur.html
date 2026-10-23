@@ -183,7 +183,7 @@ function rideCard(b) {
       ${b.statut === "confirmee" ? `<button data-st="${b.id}|terminee">Course terminée</button><button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
       ${b.statut === "annulee" ? `<button class="link" data-st="${b.id}|en_attente">Remettre en attente</button>` : ""}
     </div>
-    <p class="muted small mono">Réf. ${esc(b.ref)}</p></article>`;
+    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p><button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button></div></article>`;
 }
 function clientsView() {
   const count = {}; S.bookings.forEach(b => { if (b.statut !== "annulee") count[b.clientUid] = (count[b.clientUid] || 0) + 1; });
@@ -232,6 +232,13 @@ function bind() {
       if (st === "confirmee" && b?.mode === "immediat" && d.status === "dispo") setStatus("course");
       else if (st === "terminee" && d.status === "course") setStatus("dispo");
     } catch { toast("Mise à jour impossible"); }
+  });
+  on("[data-del]", "click", async e => {
+    const btn = e.currentTarget;
+    if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer la suppression"; btn.style.fontWeight = "700"; setTimeout(() => { if (btn.isConnected) { btn.dataset.armed = ""; btn.textContent = "Supprimer"; btn.style.fontWeight = ""; } }, 4000); return; }
+    const { error } = await sb.from("bookings").delete().eq("id", btn.dataset.del);
+    if (error) return toast("Suppression impossible");
+    S.bookings = S.bookings.filter(x => x.id !== btn.dataset.del); toast("Course supprimée"); render(); syncMap(false);
   });
   $("#tarif-form")?.addEventListener("submit", e => {
     e.preventDefault(); const T = tarifOf(S.settings), tiers = []; let prev = 0;
