@@ -29,7 +29,7 @@
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, configured, DEFAULT_SETTINGS, $, esc, todayISO, nowHM, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  tarifOf, priceFor, reverse, createMap, markerEl, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+  tarifOf, priceFor, reverse, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -54,6 +54,77 @@ function checkNear() {
     const m = dist(S.me, b.depart);
     if (m <= 1500) { nearSent.add(b.id); notifyClient(b.id, "near", Math.max(1, Math.round(m / 1000 / 30 * 60))); }
   }
+}
+/* ---------- course en cours ---------- */
+const ACTIVE = ["approche", "arrive", "abord"];
+const activeRide = () => S.bookings.find(b => b.statut === "confirmee" && ACTIVE.includes(b.phase));
+async function patchBooking(b, patch, statut) {
+  const { id: _i, statut: _s, clientUid: _c, ...doc } = b;
+  const upd = { doc: { ...doc, ...patch } }; if (statut) upd.statut = statut;
+  const { error } = await sb.from("bookings").update(upd).eq("id", b.id);
+  if (error) throw error;
+  S.bookings = S.bookings.map(x => x.id === b.id ? { ...x, ...patch, ...(statut ? { statut } : {}) } : x);
+}
+const navState = { key: "", at: 0, from: null, data: null };
+function navTarget(r) { return r.phase === "abord" ? r.arrivee : r.phase === "approche" ? r.depart : null; }
+async function updateNav(force) {
+  const r = activeRide();
+  if (!r || !S.me || !map) { navState.data = null; return; }
+  const target = navTarget(r), key = r.id + r.phase;
+  if (!target?.lat) { navState.data = null; navState.key = key; setRouteLine(map, null); updateNavDom(); return; }
+  if (!force && navState.key === key && Date.now() - navState.at < 25000 && navState.from && dist(navState.from, S.me) < 150) return;
+  navState.key = key; navState.at = Date.now(); navState.from = S.me;
+  try { navState.data = await route(S.me, target); setRouteLine(map, navState.data.geometry); }
+  catch { navState.data = { km: Math.round(dist(S.me, target) / 100) / 10, min: null }; }
+  updateNavDom();
+}
+function updateNavDom() {
+  const m = $("#nav-min"), k = $("#nav-km"); if (!m || !k) return;
+  const d = navState.data;
+  m.textContent = d?.min != null ? d.min + " min" : "…";
+  k.textContent = d?.km != null ? d.km.toLocaleString("fr-FR") + " km restants" : "Calcul de l'itinéraire";
+}
+let waitTimer = null;
+function tickWait() {
+  const el = $("#wait"), r = activeRide();
+  if (!el || !r?.arriveAt) return;
+  const s = Math.max(0, Math.floor((Date.now() - r.arriveAt) / 1000));
+  el.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  el.classList.toggle("over", s > 360);
+  const n = $("#wait-note"); if (n) n.textContent = s > 360 ? "Les 6 minutes offertes sont dépassées" : "sur 6 min d'attente offertes";
+}
+function bindSlide(el, onDone) {
+  const knob = el.querySelector(".knob"); let x0 = 0, x = 0, max = 0, active = false;
+  const end = async () => {
+    if (!active) return; active = false; el.classList.remove("dragging");
+    if (x >= max - 6) { knob.style.transform = `translateX(${max}px)`; el.classList.add("done"); try { await onDone(); } catch { toast("Action impossible. Réessayez."); el.classList.remove("done"); knob.style.transform = ""; } }
+    else knob.style.transform = "";
+    S.sliding = false;
+  };
+  el.addEventListener("pointerdown", e => { if (el.classList.contains("done")) return; active = true; S.sliding = true; el.classList.add("dragging"); x0 = e.clientX; x = 0; max = el.clientWidth - knob.offsetWidth - 12; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => { if (!active) return; x = Math.min(max, Math.max(0, e.clientX - x0)); knob.style.transform = `translateX(${x}px)`; });
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+function activeView(r) {
+  const tel = String(r.clientTel || "").replace(/\s/g, "");
+  const P = {
+    approche: { tag: "En route vers le client", target: r.depart, slide: ["arrive", "Glisser : je suis arrivé", ""] },
+    arrive: { tag: "Arrivé chez le client", target: r.depart, slide: ["abord", "Glisser : passager pris en charge", ""] },
+    abord: { tag: "En route vers la destination", target: r.arrivee, slide: ["depose", "Glisser : passager déposé", "green"] }
+  }[r.phase];
+  return `<section class="panel trip">
+    <div class="between"><span class="phase">${P.tag}</span>${r.prix ? `<span class="price">${eur(r.prix)}</span>` : ""}</div>
+    ${r.phase === "arrive"
+      ? `<div class="eta"><b class="wait" id="wait">0:00</b><span id="wait-note">sur 6 min d'attente offertes</span></div>`
+      : `<div class="eta"><b id="nav-min">…</b><span id="nav-km">Calcul de l'itinéraire</span></div>`}
+    <p class="dest">${esc(P.target?.label || "")}</p>
+    <div class="client"><div><div class="nm">${esc(r.clientPrenom)} ${esc(r.clientNom)}</div><div class="small muted">${r.passagers} pers. · ${r.bagages} bag. · ${r.paiement === "cb" ? "Carte" : "Espèces"}</div></div>
+      <div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(tel)}">Appeler</a></div></div>
+    ${r.note ? `<p class="small muted">« ${esc(r.note)} »</p>` : ""}
+    ${r.phase !== "arrive" ? `<a class="navbtn waze" href="${wazeTo(P.target)}" target="_blank" rel="noopener">Ouvrir dans Waze</a>` : ""}
+    <div class="slide ${P.slide[2]}" data-slide="${P.slide[0]}"><div class="knob">→</div><div class="lbl">${P.slide[1]}</div></div>
+    <button class="link" data-cancel-active="${r.id}" style="color:var(--bad)">Annuler la course</button>
+  </section>`;
 }
 async function saveSettings(patch, msg) { try { await writeSettings(patch); if (msg) toast(msg); render(); syncMap(false); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); } }
 
@@ -91,6 +162,7 @@ function startGPS() {
     }
     syncMap(!M.me);
     checkNear();
+    if (activeRide() && map) { map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5, duration: 800 }); updateNav(); }
   }, e => { toast(e.code === 1 ? "Autorisez la localisation pour être visible des clients." : "Position GPS introuvable pour le moment."); },
   { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
   if ("wakeLock" in navigator) navigator.wakeLock.request("screen").then(w => wake = w).catch(() => { });
@@ -121,8 +193,16 @@ function render() {
   nav.innerHTML = `<div class="in" role="tablist">${[["resa", "Courses", IC.car], ["clients", "Clients", IC.users], ["reglages", "Réglages", IC.sliders]].map(([k, l, ic]) =>
     `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : ""}</button>`).join("")}</div>`;
   nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
-  app.innerHTML = S.tab === "resa" ? coursesView() : S.tab === "clients" ? clientsView() : reglagesView();
+  const act = S.tab === "resa" ? activeRide() : null;
+  const box = $("#mapbox"), wasBig = box.classList.contains("big");
+  box.classList.toggle("big", !!act);
+  if (map && wasBig !== !!act) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
+  app.innerHTML = act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "clients" ? clientsView() : reglagesView();
   bind();
+  if (act) {
+    updateNavDom(); updateNav(navState.key !== act.id + act.phase);
+    clearInterval(waitTimer); if (act.phase === "arrive") { tickWait(); waitTimer = setInterval(tickWait, 1000); }
+  } else { clearInterval(waitTimer); if (navState.key) { navState.key = ""; navState.data = null; if (map) setRouteLine(map, null); } }
 }
 
 function loginView() {
@@ -180,7 +260,7 @@ function rideCard(b) {
       ${b.depart?.lat && b.arrivee?.lat ? `<div class="navlinks"><a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a></div>` : ""}` : ""}
     <div class="actions">
       ${b.statut === "en_attente" ? `<button data-st="${b.id}|confirmee">Accepter</button><button class="danger" data-st="${b.id}|annulee">Refuser</button>` : ""}
-      ${b.statut === "confirmee" ? `<button data-st="${b.id}|terminee">Course terminée</button><button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
+      ${b.statut === "confirmee" ? `<button class="go" data-start="${b.id}">Démarrer la course</button><button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
       ${b.statut === "annulee" ? `<button class="link" data-st="${b.id}|en_attente">Remettre en attente</button>` : ""}
     </div>
     <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p><button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button></div></article>`;
@@ -224,7 +304,10 @@ function bind() {
     const [id, st] = e.currentTarget.dataset.st.split("|"), b = S.bookings.find(x => x.id === id);
     try {
       const patch = { statut: st };
-      if (b) { const { id: _i, statut: _s, clientUid: _c, ...doc } = b; doc.termineeAt = st === "terminee" ? Date.now() : null; patch.doc = doc; }
+      if (b) { const { id: _i, statut: _s, clientUid: _c, ...doc } = b; doc.termineeAt = st === "terminee" ? Date.now() : null;
+        if (st === "confirmee" && b.mode === "immediat") { doc.phase = "approche"; doc.startAt = Date.now(); }
+        if (st !== "confirmee") doc.phase = st === "terminee" ? "fini" : null;
+        patch.doc = doc; }
       const { error } = await sb.from("bookings").update(patch).eq("id", id); if (error) throw error;
       toast(st === "confirmee" ? "Course acceptée" : st === "terminee" ? "Course terminée" : st === "annulee" ? "Course annulée" : "Remise en attente");
       const d = driver();
@@ -232,6 +315,25 @@ function bind() {
       if (st === "confirmee" && b?.mode === "immediat" && d.status === "dispo") setStatus("course");
       else if (st === "terminee" && d.status === "course") setStatus("dispo");
     } catch { toast("Mise à jour impossible"); }
+  });
+  on("[data-start]", "click", async e => {
+    const b = S.bookings.find(x => x.id === e.currentTarget.dataset.start); if (!b) return;
+    if (activeRide()) return toast("Terminez d'abord la course en cours.");
+    try { await patchBooking(b, { phase: "approche", startAt: Date.now() }); if (driver().status !== "course") setStatus("course"); else render(); }
+    catch { toast("Impossible de démarrer la course"); }
+  });
+  document.querySelectorAll("[data-slide]").forEach(el => bindSlide(el, async () => {
+    const r = activeRide(); if (!r) return;
+    const act = el.dataset.slide, now = Date.now();
+    if (act === "arrive") { await patchBooking(r, { phase: "arrive", arriveAt: now }); notifyClient(r.id, "arrived"); toast("Client prévenu de votre arrivée"); }
+    else if (act === "abord") { await patchBooking(r, { phase: "abord", pickupAt: now }); toast("Bonne route !"); }
+    else if (act === "depose") { await patchBooking(r, { phase: "fini", deposeAt: now, termineeAt: now }, "terminee"); toast("Course terminée" + (r.prix ? " · " + eur(r.prix) : "")); if (driver().status === "course") { setStatus("dispo"); return; } }
+    render();
+  }));
+  on("[data-cancel-active]", "click", async e => {
+    const btn = e.currentTarget, r = activeRide(); if (!r) return;
+    if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer l'annulation"; return; }
+    try { await patchBooking(r, { phase: null }, "annulee"); toast("Course annulée"); if (driver().status === "course") setStatus("dispo"); else render(); } catch { toast("Annulation impossible"); }
   });
   on("[data-del]", "click", async e => {
     const btn = e.currentTarget;
@@ -281,7 +383,7 @@ else {
     subs.push(watchSettings(doc => {
       const first = !S.settings; S.settings = doc || {};
       if (first && driver().status !== "off") startGPS();
-      if (first || !typing()) render(); syncMap(false);
+      if (first || (!typing() && !S.sliding && !activeRide())) render(); syncMap(false);
     }));
     subs.push(watchTable("bookings", async () => {
       const { data, error } = await sb.from("bookings").select("*").order("created_at", { ascending: false }).limit(500);
@@ -291,7 +393,7 @@ else {
       const pend = new Set(rows.filter(b => b.statut === "en_attente").map(b => b.id));
       if (S.seen) { const fresh = [...pend].filter(id => !S.seen.has(id)); if (fresh.length) { beep(); toast("Nouvelle demande de course"); } }
       S.seen = pend;
-      if (!typing()) render(); syncMap(false);
+      if (!typing() && !S.sliding) render(); syncMap(false);
     }));
     subs.push(watchTable("clients", async () => {
       const { data, error } = await sb.from("clients").select("*"); if (error) throw error; return data;
