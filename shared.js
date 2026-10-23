@@ -28,7 +28,8 @@ export async function enablePush() {
 }
 
 /* ---------- Revolut ---------- */
-export const revolutLink = (tag, amount) => { const t = String(tag || "").trim().replace(/^@/, ""); return t ? `https://revolut.me/${encodeURIComponent(t)}${amount ? "?amount=" + Number(amount).toFixed(2) + "&currency=EUR" : ""}` : ""; };
+// Format vérifié sur iPhone : montant en centimes (1 € = 100)
+export const revolutLink = (tag, amount) => { const t = String(tag || "").trim().replace(/^@/, ""); return t ? `https://revolut.me/${encodeURIComponent(t)}${amount ? "?currency=EUR&amount=" + Math.round(Number(amount) * 100) : ""}` : ""; };
 
 /* ---------- données ---------- */
 // Une réservation = colonnes (id, statut, client_uid) + détails dans doc
