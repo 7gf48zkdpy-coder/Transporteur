@@ -36,7 +36,11 @@ $("#locbtn").innerHTML = IC.locate;
 
 const S = { user: null, uid: null, ok: false, pending: false, signup: false, row: null, team: [], teamList: null, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir",
   me: null, err: "", seen: null, edit: null, pw: null, add: false, teamMsg: "" };
-const isAdmin = () => !!S.row?.is_admin;
+// Compte principal. En mode développeur, il peut regarder l'appli « comme un chauffeur » (S.preview)
+const realAdmin = () => !!S.row?.is_admin;
+const isAdmin = () => realAdmin() && !S.preview;
+const devOn = () => { try { return realAdmin() && localStorage.getItem("tp_dev") === "1"; } catch { return false; } };
+const setDev = v => { try { v ? localStorage.setItem("tp_dev", "1") : localStorage.removeItem("tp_dev"); } catch { } };
 const driver = () => ({ status: S.row?.status || "off", lat: S.row?.lat, lng: S.row?.lng, at: S.row?.at });
 const nameOf = id => { const d = S.team.find(x => x.id === id); return d ? d.prenom || "Chauffeur" : id === S.uid ? S.row?.prenom : "un chauffeur"; };
 const mine = b => b.driverId === S.uid;
@@ -244,7 +248,7 @@ function render() {
   const box = $("#mapbox"), wasBig = box.classList.contains("big");
   box.classList.toggle("big", !!act);
   if (map && wasBig !== !!act) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
-  app.innerHTML = act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : reglagesView();
+  app.innerHTML = devBar() + (act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : reglagesView());
   bind();
   if (act) {
     updateNavDom(); updateNav(navState.key !== act.id + act.phase);
@@ -252,6 +256,12 @@ function render() {
   } else { clearInterval(waitTimer); if (navState.key) { navState.key = ""; navState.data = null; if (map) setRouteLine(map, null); } }
 }
 
+// Barre du mode développeur (compte principal uniquement) : changer de point de vue pour tester
+function devBar() {
+  if (!devOn()) return "";
+  const b = (k, l, on) => `<button class="sm ${on ? "" : "ghost"}" data-view="${k}">${l}</button>`;
+  return `<div class="devbar"><span>Mode dév.</span><div class="actions">${b("admin", "Moi", !S.preview)}${b("chauffeur", "Chauffeur", S.preview)}${b("client", "Client →", false)}</div></div>`;
+}
 function loginView() {
   return `<form id="login" class="panel stack" novalidate style="margin-top:20px"><h2>Connexion chauffeur</h2>
     <label class="f" for="l-mail">E-mail<input id="l-mail" type="email" autocomplete="username" value=""></label>
@@ -343,13 +353,14 @@ function gainsEquipe() {
   const parMois = m => faites.filter(b => doneDay(b).slice(0, 7) === m).reduce((t, b) => t + Number(b.commission), 0);
   const ici = todayISO().slice(0, 7), d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
   const avant = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-  return { total, recu: Math.min(recu, total), reste: Math.max(0, total - recu), mois: parMois(ici), moisAvant: parMois(avant), nb: faites.length };
+  const ca = S.bookings.filter(b => b.statut === "terminee" && ids.has(b.driverId) && doneDay(b).slice(0, 7) === ici).reduce((t, b) => t + (Number(b.prix) || 0), 0);
+  return { total, recu: Math.min(recu, total), reste: Math.max(0, total - recu), mois: parMois(ici), moisAvant: parMois(avant), nb: faites.length, ca };
 }
 function gainsCard() {
   const g = gainsEquipe();
   return `<section class="panel stack"><div class="between"><h3>Mes gains sur l'équipe</h3><span class="small muted">${pctOf()} % par course</span></div>
     <div class="stats"><div class="stat"><div class="v" style="font-size:24px">${eur(g.recu)}</div><div class="k">reçu</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.reste)}</div><div class="k">à recevoir</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.total)}</div><div class="k">total gagné</div></div></div>
-    <p class="muted small">Ce mois-ci : <b>${eur(g.mois)}</b> · Mois dernier : ${eur(g.moisAvant)} · ${g.nb} course${g.nb > 1 ? "s" : ""} de tes chauffeurs</p></section>`;
+    <p class="muted small">Ce mois-ci : <b>${eur(g.mois)}</b> pour toi, sur <b>${eur(g.ca)}</b> de courses faites par tes chauffeurs · Mois dernier : ${eur(g.moisAvant)}</p></section>`;
 }
 function partCard() {
   const p = partOf(S.uid); if (!p.du && !p.reste) return "";
@@ -462,7 +473,10 @@ function reglagesView() {
     <button class="big" type="submit">Enregistrer</button></form>`;
   const pw = `<form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
   if (!isAdmin()) return `<h2>Réglages</h2>${profil}${pw}<div class="panel"><button class="ghost" id="logout">Se déconnecter</button></div>`;
-  return `<h2>Réglages</h2>${profil}
+  return `<h2>Réglages</h2>
+  <div class="panel stack"><div class="between"><div><h3>Mode développeur</h3><p class="small muted">Pour tester l'appli comme un chauffeur ou comme un client.</p></div>
+    <button class="sm ${devOn() ? "" : "ghost"}" id="dev-toggle">${devOn() ? "Activé" : "Activer"}</button></div></div>
+  ${profil}
   <form id="tarif-form" class="panel stack" novalidate><h3>Prix au kilomètre</h3>
     <p class="muted small">Plus la course est longue, moins le km est cher. Une course plus longue ne coûte jamais moins cher qu'une plus courte. Valable pour toute l'équipe.</p>
     <div class="tbl"><table><thead><tr><th>Distance</th><th>€ / km</th></tr></thead><tbody>
@@ -599,6 +613,15 @@ function bind() {
       S.teamMsg = `${f.prenom} est ajouté. Envoyez-lui le lien ci-dessous, son e-mail (${email}) et son mot de passe.`; await loadTeamList(); render(); }
     catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Ajouter le chauffeur"; }
   });
+  // Mode développeur
+  $("#dev-toggle")?.addEventListener("click", () => { const v = !devOn(); setDev(v); if (!v) S.preview = false; toast(v ? "Mode développeur activé : la barre est en haut" : "Mode développeur désactivé"); render(); window.scrollTo(0, 0); });
+  on("[data-view]", "click", e => {
+    const v = e.currentTarget.dataset.view;
+    if (v === "client") { location.href = "./?dev=1"; return; }
+    S.preview = v === "chauffeur"; S.edit = S.pw = null; S.add = false;
+    if (S.preview && !["resa", "reglages"].includes(S.tab)) S.tab = "resa";
+    toast(S.preview ? "Vue chauffeur : ce que voient tes chauffeurs" : "Retour à ton compte complet"); render(); syncMap(false); window.scrollTo(0, 0);
+  });
   // Réglages
   $("#me-form")?.addEventListener("submit", async e => {
     e.preventDefault(); const f = readProfile("m");
@@ -650,6 +673,7 @@ else {
   async function onUser(user) {
     if ((user?.id || null) === current) return; current = user?.id || null;
     subs.forEach(c => sb.removeChannel(c)); subs = [];
+    S.preview = false;
     S.user = user || null; S.uid = user?.id || null; S.ok = false; S.row = null; S.team = []; S.teamList = null; S.bookings = []; S.seen = null;
     if (!user || user.is_anonymous) { S.user = null; render(); return; }
     const { data: isDriver } = await sb.rpc("is_driver");

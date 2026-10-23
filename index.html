@@ -125,13 +125,17 @@ function quote() {
 function afterPlaces() { computeQuote(); }
 
 /* ---------- écrans ---------- */
+// Mode développeur (compte principal) : bouton pour revenir à l'espace chauffeur
+const devMode = () => { try { if (new URLSearchParams(location.search).get("dev") === "1") localStorage.setItem("tp_dev", "1"); return localStorage.getItem("tp_dev") === "1"; } catch { return false; } };
+const DEV = devMode();
+function devBar() { return DEV ? `<div class="devbar"><span>Mode dév. · vue client</span><a class="navbtn" href="chauffeur.html" style="padding:6px 12px;font-size:14px">← Espace chauffeur</a></div>` : ""; }
 function render() {
   chip();
   $("#who").textContent = S.me?.prenom ? "Bonjour " + S.me.prenom : "";
   const app = $("#app");
   if (S.me === undefined) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
-  if (!S.me || S.editing) { app.innerHTML = signupView(); bindSignup(); return; }
-  app.innerHTML = mainView();
+  if (!S.me || S.editing) { app.innerHTML = devBar() + signupView(); bindSignup(); return; }
+  app.innerHTML = devBar() + mainView();
   bindMain();
 }
 
