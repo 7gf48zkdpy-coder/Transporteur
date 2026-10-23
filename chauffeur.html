@@ -28,18 +28,37 @@
 <nav class="bnav" id="bnav" hidden></nav>
 
 <script type="module">
-import { sb, watchSettings, watchTable, rowToBooking, configured, DEFAULT_SETTINGS, $, esc, todayISO, nowHM, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  tarifOf, priceFor, reverse, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+import { sb, watchSettings, watchTable, rowToBooking, docOf, carLabel, configured, DEFAULT_SETTINGS, $, esc, todayISO, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
+  tarifOf, priceFor, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
 
-const S = { user: null, ok: false, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir", me: null, err: "", seen: null };
-const driver = () => ({ status: "off", ...(S.settings?.driver || {}) });
+const MAX_EQUIPE = 4;
+const S = { user: null, uid: null, ok: false, row: null, team: [], teamList: null, settings: null, bookings: [], clients: [], tab: "resa", filter: "avenir",
+  me: null, err: "", seen: null, edit: null, pw: null, add: false, teamMsg: "" };
+const isAdmin = () => !!S.row?.is_admin;
+const driver = () => ({ status: S.row?.status || "off", lat: S.row?.lat, lng: S.row?.lng, at: S.row?.at });
+const nameOf = id => { const d = S.team.find(x => x.id === id); return d ? d.prenom || "Chauffeur" : id === S.uid ? S.row?.prenom : "un chauffeur"; };
+const mine = b => b.driverId === S.uid;
+const offerForMe = b => b.statut === "en_attente" && !b.driverId && (b.offeredTo === S.uid || !b.offeredTo);
+const editingForm = () => S.edit || S.pw || S.add;
+
 async function writeSettings(patch) {
   const next = { ...(S.settings || {}), ...patch };
   const { error } = await sb.from("settings").update({ doc: next }).eq("id", 1);
   if (error) throw error; S.settings = next;
+}
+async function writeMe(patch) {
+  const { error } = await sb.from("drivers").update(patch).eq("id", S.uid);
+  if (error) throw error; S.row = { ...S.row, ...patch };
+  S.team = S.team.map(d => d.id === S.uid ? { ...d, ...patch } : d);
+}
+async function team(action, body = {}) {
+  const { data, error } = await sb.functions.invoke("manage-drivers", { body: { action, ...body } });
+  if (error) { let m = ""; try { m = (await error.context.json()).error; } catch { } throw new Error(m || "Action impossible. Vérifiez votre connexion."); }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 // Notification au client (course acceptée / chauffeur proche) — envoyée par le serveur
 async function notifyClient(bookingId, kind, minutes) {
@@ -49,7 +68,7 @@ const nearSent = new Set();
 function checkNear() {
   if (!S.me) return;
   for (const b of S.bookings) {
-    if (b.statut !== "confirmee" || !b.depart?.lat || b.notifNear || nearSent.has(b.id)) continue;
+    if (!mine(b) || b.statut !== "confirmee" || !b.depart?.lat || b.notifNear || nearSent.has(b.id)) continue;
     if (b.date !== todayISO()) continue;
     const m = dist(S.me, b.depart);
     if (m <= 1500) { nearSent.add(b.id); notifyClient(b.id, "near", Math.max(1, Math.round(m / 1000 / 30 * 60))); }
@@ -57,10 +76,9 @@ function checkNear() {
 }
 /* ---------- course en cours ---------- */
 const ACTIVE = ["approche", "arrive", "abord"];
-const activeRide = () => S.bookings.find(b => b.statut === "confirmee" && ACTIVE.includes(b.phase));
+const activeRide = () => S.bookings.find(b => mine(b) && b.statut === "confirmee" && ACTIVE.includes(b.phase));
 async function patchBooking(b, patch, statut) {
-  const { id: _i, statut: _s, clientUid: _c, ...doc } = b;
-  const upd = { doc: { ...doc, ...patch } }; if (statut) upd.statut = statut;
+  const upd = { doc: { ...docOf(b), ...patch } }; if (statut) upd.statut = statut;
   const { error } = await sb.from("bookings").update(upd).eq("id", b.id);
   if (error) throw error;
   S.bookings = S.bookings.map(x => x.id === b.id ? { ...x, ...patch, ...(statut ? { statut } : {}) } : x);
@@ -129,22 +147,32 @@ function activeView(r) {
 async function saveSettings(patch, msg) { try { await writeSettings(patch); if (msg) toast(msg); render(); syncMap(false); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); } }
 
 /* ---------- carte ---------- */
-let map = null; const M = { me: null, picks: [] };
+let map = null; const M = { me: null, picks: [], mates: {} };
 function ensureMap() {
   if (map) return; $("#mapbox").hidden = false;
   map = createMap($("#map"));
   map.on("load", () => { syncMap(true); });
 }
+const fresh = d => d && d.status !== "off" && d.lat != null && Date.now() - (d.at || 0) < 30 * 60000;
 function syncMap(fit) {
   if (!map) return;
   const d = driver(), me = S.me || (d.lat ? { lat: d.lat, lng: d.lng } : null);
   if (me) { if (!M.me) M.me = new maplibregl.Marker({ element: markerEl("car") }).setLngLat([me.lng, me.lat]).addTo(map); else M.me.setLngLat([me.lng, me.lat]); }
+  // Les autres chauffeurs de l'équipe (compte principal)
+  const mates = isAdmin() ? S.team.filter(x => x.id !== S.uid && x.actif && fresh(x)) : [];
+  for (const id of Object.keys(M.mates)) if (!mates.some(x => x.id === id)) { M.mates[id].remove(); delete M.mates[id]; }
+  for (const x of mates) {
+    if (!M.mates[x.id]) { const el = markerEl("car"); el.classList.add("mate"); el.title = x.prenom; M.mates[x.id] = new maplibregl.Marker({ element: el }).setLngLat([x.lng, x.lat]).addTo(map); }
+    else M.mates[x.id].setLngLat([x.lng, x.lat]);
+    M.mates[x.id].getElement().classList.toggle("busy", x.status === "course");
+  }
   M.picks.forEach(m => m.remove()); M.picks = [];
-  const active = S.bookings.filter(b => (b.statut === "en_attente" || b.statut === "confirmee") && b.date === todayISO() && b.depart?.lat);
+  const active = S.bookings.filter(b => (b.statut === "en_attente" ? offerForMe(b) || isAdmin() : b.statut === "confirmee" && (mine(b) || isAdmin())) && b.date === todayISO() && b.depart?.lat);
   active.forEach(b => M.picks.push(new maplibregl.Marker({ element: markerEl("pick") }).setLngLat([b.depart.lng, b.depart.lat]).addTo(map)));
   if (fit) fitTo(map, [me, ...active.map(b => b.depart)]);
   const [cls, txt] = d.status === "dispo" ? ["dispo", "En ligne"] : d.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
-  $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}`;
+  const online = isAdmin() ? S.team.filter(x => x.actif && fresh(x)).length : 0;
+  $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}${online > 1 ? ` · ${online} en ligne` : ""}`;
 }
 $("#locbtn").addEventListener("click", () => { const p = S.me; if (p && map) map.easeTo({ center: [p.lng, p.lat], zoom: 14 }); else toast("Passez en ligne pour activer votre position"); });
 
@@ -158,7 +186,7 @@ function startGPS() {
     const now = Date.now(), moved = dist(lastSent, S.me);
     if (now - lastSent.t > 30000 || moved > 80) {
       lastSent = { t: now, ...S.me };
-      writeSettings({ driver: { ...driver(), lat: S.me.lat, lng: S.me.lng, at: now } }).catch(() => { });
+      writeMe({ lat: S.me.lat, lng: S.me.lng, at: now }).catch(() => { });
     }
     syncMap(!M.me);
     checkNear();
@@ -176,28 +204,33 @@ function beep() {
 }
 async function setStatus(status) {
   if (status !== "off") { try { if (!audio) audio = new AudioContext(); } catch { } startGPS(); } else stopGPS();
-  await saveSettings({ driver: { ...driver(), status, ...(status === "off" ? {} : S.me ? { lat: S.me.lat, lng: S.me.lng, at: Date.now() } : {}) } },
-    status === "dispo" ? "Vous êtes en ligne" : status === "course" ? "En course" : "Vous êtes hors ligne");
+  try {
+    await writeMe({ status, ...(status !== "off" && S.me ? { lat: S.me.lat, lng: S.me.lng, at: Date.now() } : {}) });
+    toast(status === "dispo" ? "Vous êtes en ligne" : status === "course" ? "En course" : "Vous êtes hors ligne");
+  } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
+  render(); syncMap(false);
 }
 
 /* ---------- écrans ---------- */
 function render() {
   const app = $("#app");
   if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = loginView(); bindLogin(); return; }
-  if (!S.ok) { app.innerHTML = `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas celui du chauffeur.</p><button class="ghost" id="out">Se déconnecter</button></div>`; $("#out").onclick = () => sb.auth.signOut(); return; }
-  if (!S.settings) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
+  if (!S.ok) { app.innerHTML = `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas un compte chauffeur, ou il a été désactivé.</p><button class="ghost" id="out">Se déconnecter</button></div>`; $("#out").onclick = () => sb.auth.signOut(); return; }
+  if (!S.settings || !S.row) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
   ensureMap();
-  $("#who").textContent = "";
-  const pending = S.bookings.filter(b => b.statut === "en_attente").length;
+  $("#who").textContent = S.row.prenom ? S.row.prenom : "";
+  const pending = S.bookings.filter(offerForMe).length;
+  const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users]] : []), ["reglages", "Réglages", IC.sliders]];
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = "resa";
   const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav");
-  nav.innerHTML = `<div class="in" role="tablist">${[["resa", "Courses", IC.car], ["clients", "Clients", IC.users], ["reglages", "Réglages", IC.sliders]].map(([k, l, ic]) =>
+  nav.innerHTML = `<div class="in" role="tablist">${tabs.map(([k, l, ic]) =>
     `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : ""}</button>`).join("")}</div>`;
-  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); render(); window.scrollTo(0, 0); });
   const act = S.tab === "resa" ? activeRide() : null;
   const box = $("#mapbox"), wasBig = box.classList.contains("big");
   box.classList.toggle("big", !!act);
   if (map && wasBig !== !!act) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
-  app.innerHTML = act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "clients" ? clientsView() : reglagesView();
+  app.innerHTML = act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : reglagesView();
   bind();
   if (act) {
     updateNavDom(); updateNav(navState.key !== act.id + act.phase);
@@ -216,65 +249,138 @@ function bindLogin() {
   $("#login").addEventListener("submit", async e => {
     e.preventDefault();
     const { error } = await sb.auth.signInWithPassword({ email: $("#l-mail").value.trim(), password: $("#l-pass").value });
-    if (error) { S.err = "E-mail ou mot de passe incorrect."; render(); } else S.err = "";
+    if (error) { S.err = /banned/i.test(error.message || "") ? "Ce compte a été désactivé." : "E-mail ou mot de passe incorrect."; render(); } else S.err = "";
   });
 }
 
+// Une course compte le jour où elle est terminée (pas le jour prévu)
+const doneDay = b => { if (b.termineeAt) { const d = new Date(b.termineeAt); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); } return b.date; };
+const sum = l => l.reduce((s, b) => s + (Number(b.prix) || 0), 0);
+function statsOf(id) {
+  const done = S.bookings.filter(b => b.statut === "terminee" && b.driverId === id);
+  const today = done.filter(b => doneDay(b) === todayISO()), month = done.filter(b => doneDay(b).slice(0, 7) === todayISO().slice(0, 7));
+  return { done, today, month };
+}
 function coursesView() {
   const d = driver(), on = d.status !== "off", all = S.bookings;
-  let list = all;
-  if (S.filter === "attente") list = all.filter(b => b.statut === "en_attente");
-  else if (S.filter === "avenir") list = all.filter(b => b.statut === "en_attente" || b.statut === "confirmee");
-  list = [...list].sort((a, b) => S.filter === "toutes" ? (b.createdAtMs || 0) - (a.createdAtMs || 0) : (a.date + a.time).localeCompare(b.date + b.time));
-  // Une course compte le jour où elle est terminée (pas le jour prévu)
-  const doneDay = b => { if (b.termineeAt) { const d = new Date(b.termineeAt); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); } return b.date; };
-  const done = all.filter(b => b.statut === "terminee");
-  const doneToday = done.filter(b => doneDay(b) === todayISO());
-  const doneMonth = done.filter(b => doneDay(b).slice(0, 7) === todayISO().slice(0, 7));
-  const sum = l => l.reduce((s, b) => s + (Number(b.prix) || 0), 0);
-  const pending = all.filter(b => b.statut === "en_attente").length;
+  const visible = isAdmin() ? all : all.filter(b => mine(b) || offerForMe(b));
+  let list = visible;
+  if (S.filter === "attente") list = visible.filter(b => b.statut === "en_attente");
+  else if (S.filter === "avenir") list = visible.filter(b => b.statut === "en_attente" || b.statut === "confirmee");
+  else if (S.filter === "miennes") list = visible.filter(mine);
+  list = [...list].sort((a, b) => S.filter === "toutes" || S.filter === "miennes" ? (b.createdAtMs || 0) - (a.createdAtMs || 0) : (a.date + a.time).localeCompare(b.date + b.time));
+  const st = statsOf(S.uid);
+  const pending = all.filter(offerForMe).length;
+  const filters = [["avenir", "À venir"], ["attente", "À accepter"], ...(isAdmin() ? [["miennes", "Les miennes"]] : []), ["toutes", "Toutes"]];
   return `
   <section class="panel online ${d.status}">
     <div style="display:flex;align-items:center;gap:12px"><span class="dot d-${d.status}" style="width:14px;height:14px"></span>
       <div><p class="state">${d.status === "dispo" ? "En ligne" : d.status === "course" ? "En course" : "Hors ligne"}</p>
-      <p class="muted small">${d.status === "dispo" ? "Les clients vous voient sur la carte et peuvent vous demander." : d.status === "course" ? "Course en cours. Les clients voient que vous êtes occupé." : "Les clients peuvent seulement réserver pour plus tard."}</p></div></div>
+      <p class="muted small">${d.status === "dispo" ? "Les clients vous voient sur la carte. Les courses les plus proches vous sont proposées." : d.status === "course" ? "Course en cours. Les nouvelles demandes vont aux autres chauffeurs." : "Vous ne recevez pas de course immédiate."}</p></div></div>
     ${d.status === "course" ? `<button class="big ghost" data-status="dispo">Je suis libre</button>` : `<button class="big ${on ? "ghost" : "go"}" data-status="${on ? "off" : "dispo"}">${on ? "Passer hors ligne" : "Passer en ligne"}</button>`}
     ${on ? `<p class="muted small">Position GPS ${d.at ? "envoyée " + ago(d.at) : "en attente…"}. Gardez cette page ouverte pendant votre service.</p>` : ""}
   </section>
-  <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${doneToday.length}</div><div class="k">faite${doneToday.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(doneToday))}</div><div class="k">gagné aujourd'hui</div></div></div>
-  <p class="muted small center">Ce mois-ci : <b>${doneMonth.length}</b> course${doneMonth.length > 1 ? "s" : ""} · <b>${eur(sum(doneMonth))}</b> · Total : ${done.length} course${done.length > 1 ? "s" : ""} · ${eur(sum(done))}</p>
-  <div class="filters">${[["avenir", "À venir"], ["attente", "À accepter"], ["toutes", "Toutes"]].map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
+  ${!S.row.modele || !S.row.plaque ? `<div class="msg warn">Ajoutez votre <b>modèle de voiture</b> et votre <b>plaque</b> dans Réglages : vos clients les verront.</div>` : ""}
+  <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${st.today.length}</div><div class="k">faite${st.today.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(st.today))}</div><div class="k">gagné aujourd'hui</div></div></div>
+  <p class="muted small center">Ce mois-ci : <b>${st.month.length}</b> course${st.month.length > 1 ? "s" : ""} · <b>${eur(sum(st.month))}</b> · Total : ${st.done.length} course${st.done.length > 1 ? "s" : ""} · ${eur(sum(st.done))}</p>
+  <div class="filters">${filters.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
   ${list.length ? list.map(rideCard).join("") : `<div class="empty">Aucune course ici. Les demandes arrivent ici dès qu'un client réserve.</div>`}`;
+}
+function offerLine(b) {
+  if (b.statut !== "en_attente") return "";
+  const asked = b.requestedDriver ? (b.requestedDriver === S.uid ? "Le client vous a demandé. " : `Le client a demandé ${esc(nameOf(b.requestedDriver))}. `) : "";
+  if (b.offeredTo === S.uid) return `<div class="msg gold"><b>Course proposée à vous.</b> ${asked}Répondez dans la minute, sinon elle passe au chauffeur suivant.</div>`;
+  if (!b.offeredTo) return `<div class="msg ok"><b>Ouverte à tous les chauffeurs.</b> ${asked}Le premier qui accepte la prend.</div>`;
+  return `<div class="msg">Proposée à <b>${esc(nameOf(b.offeredTo))}</b>. ${asked}</div>`;
 }
 function rideCard(b) {
   const live = b.statut === "en_attente" || b.statut === "confirmee";
   const tel = String(b.clientTel || "").replace(/\s/g, "");
-  return `<article class="ride ${b.statut === "en_attente" ? "new" : ""}">
+  const other = b.driverId && !mine(b);
+  return `<article class="ride ${offerForMe(b) ? "new" : ""}">
     <div class="between"><span class="when">${b.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(b.date)} · ${esc(b.time)}</span><span class="pill s-${b.statut}">${STATUS[b.statut] || b.statut}</span></div>
+    ${other ? `<p class="small"><b>Chauffeur :</b> ${esc(nameOf(b.driverId))}${b.chauffeur ? " · " + esc(carLabel(b.chauffeur)) : ""}</p>` : ""}
+    ${offerLine(b)}
     <div class="client"><div><div class="nm">${esc(b.clientPrenom)} ${esc(b.clientNom)}</div><div class="mono small">${esc(b.clientTel)}</div></div>
       <div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(tel)}">Appeler</a><button class="ghost sm" data-copy="${esc(b.clientTel)}">Copier</button></div></div>
     <div class="route"><span class="pin"></span><span>${esc(b.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(b.arrivee?.label)}</span></div>
-    <div class="between"><div class="facts"><span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "CB virement" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
+    <div class="between"><div class="facts"><span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "Carte" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
     ${b.note ? `<p class="small muted">« ${esc(b.note)} »</p>` : ""}
-    ${live ? `<div class="actions"><a class="navbtn waze" href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a class="navbtn" href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a></div>
+    ${live && !other ? `<div class="actions"><a class="navbtn waze" href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a class="navbtn" href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a></div>
       ${b.depart?.lat && b.arrivee?.lat ? `<div class="navlinks"><a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a></div>` : ""}` : ""}
     <div class="actions">
-      ${b.statut === "en_attente" ? `<button data-st="${b.id}|confirmee">Accepter</button><button class="danger" data-st="${b.id}|annulee">Refuser</button>` : ""}
-      ${b.statut === "confirmee" ? `<button class="go" data-start="${b.id}">Démarrer la course</button><button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
-      ${b.statut === "annulee" ? `<button class="link" data-st="${b.id}|en_attente">Remettre en attente</button>` : ""}
+      ${b.statut === "en_attente" && (offerForMe(b) || isAdmin()) ? `<button data-accept="${b.id}">${offerForMe(b) ? "Accepter" : "Prendre la course"}</button>` : ""}
+      ${b.statut === "en_attente" && b.offeredTo === S.uid ? `<button class="ghost" data-refuse="${b.id}">Refuser</button>` : ""}
+      ${b.statut === "en_attente" && isAdmin() ? `<button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
+      ${b.statut === "confirmee" && mine(b) ? `<button class="go" data-start="${b.id}">Démarrer la course</button>` : ""}
+      ${b.statut === "confirmee" && (mine(b) || isAdmin()) ? `<button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
+      ${b.statut === "annulee" && isAdmin() ? `<button class="link" data-repend="${b.id}">Remettre en attente</button>` : ""}
     </div>
-    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p><button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button></div></article>`;
+    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p>${isAdmin() ? `<button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button>` : ""}</div></article>`;
 }
 function clientsView() {
   const count = {}; S.bookings.forEach(b => { if (b.statut !== "annulee") count[b.clientUid] = (count[b.clientUid] || 0) + 1; });
   const cl = [...S.clients].sort((a, b) => (a.nom || "").localeCompare(b.nom || ""));
   return `<h2>Mes clients</h2>` + (cl.length ? cl.map(c => `<div class="client" style="background:var(--surface);box-shadow:var(--shadow)"><div><div class="nm">${esc(c.prenom)} ${esc(c.nom)}</div><div class="mono small">${esc(c.tel)} · ${count[c.id] || 0} course(s)</div></div><div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(String(c.tel).replace(/\s/g, ""))}">Appeler</a><button class="ghost sm" data-copy="${esc(c.tel)}">Copier</button></div></div>`).join("") : `<div class="empty">Aucun client pour l'instant.</div>`);
 }
+
+/* ---------- équipe (compte principal) ---------- */
+async function loadTeamList() {
+  try { const r = await team("list"); S.teamList = r.drivers; } catch (e) { S.teamList = S.teamList || []; S.teamMsg = e.message; }
+  if (S.tab === "equipe" && !editingForm()) render();
+}
+const profileFields = (p, d = {}) => `
+  <div class="row"><label class="f" for="${p}-prenom">Prénom<input id="${p}-prenom" autocomplete="off" value="${esc(d.prenom || "")}"></label>
+  <label class="f" for="${p}-nom">Nom<input id="${p}-nom" autocomplete="off" value="${esc(d.nom || "")}"></label></div>
+  <label class="f" for="${p}-tel">Téléphone<input id="${p}-tel" type="tel" autocomplete="off" value="${esc(d.tel || "")}"></label>
+  <div class="row"><label class="f" for="${p}-modele">Modèle de la voiture<input id="${p}-modele" placeholder="ex. Mercedes Classe E" autocomplete="off" value="${esc(d.modele || "")}"></label>
+  <label class="f" for="${p}-plaque">Plaque<input id="${p}-plaque" class="mono" placeholder="AB-123-CD" autocapitalize="characters" autocomplete="off" value="${esc(d.plaque || "")}"></label></div>
+  <label class="f" for="${p}-revtag">Revtag Revolut (pour être payé par carte)<input id="${p}-revtag" class="mono" placeholder="@sonnom" autocapitalize="off" autocorrect="off" value="${esc(d.revtag ? "@" + d.revtag : "")}"></label>`;
+const readProfile = p => ({ prenom: $(`#${p}-prenom`).value.trim(), nom: $(`#${p}-nom`).value.trim(), tel: $(`#${p}-tel`).value.trim(),
+  modele: $(`#${p}-modele`).value.trim(), plaque: $(`#${p}-plaque`).value.trim().toUpperCase(), revtag: $(`#${p}-revtag`).value.trim().replace(/^@/, "") });
+function equipeView() {
+  const list = S.teamList;
+  if (!list) return `<h2>Mon équipe</h2><div class="loading">Chargement…</div>`;
+  const others = list.filter(d => !d.is_admin), live = id => S.team.find(x => x.id === id) || {};
+  const card = d => {
+    const L = { ...d, ...live(d.id) }, st = statsOf(d.id), on = d.actif && fresh(L);
+    const [cls, txt] = !d.actif ? ["off", "Désactivé"] : on && L.status === "dispo" ? ["dispo", "En ligne"] : on && L.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
+    return `<article class="ride" style="${d.actif ? "" : "opacity:.6"}">
+      <div class="between"><div><div class="nm" style="font-weight:700;font-size:17px">${esc(L.prenom)} ${esc(L.nom)}</div>
+        <div class="small">${esc(carLabel(L)) || `<span class="muted">Véhicule non renseigné</span>`}</div></div>
+        <span class="pill s-${cls === "dispo" ? "confirmee" : cls === "course" ? "now" : "annulee"}"><span class="dot d-${cls}"></span>${txt}</span></div>
+      ${d.is_admin ? `<p class="small muted">Compte principal (vous)</p>` : ""}
+      <div class="facts"><span class="fact mono">${esc(d.email)}</span>${L.tel ? `<span class="fact mono">${esc(L.tel)}</span>` : ""}${L.revtag ? `<span class="fact mono">@${esc(L.revtag)}</span>` : ""}</div>
+      <div class="facts"><span class="fact">Aujourd'hui <b>${st.today.length}</b> · ${eur(sum(st.today))}</span><span class="fact">Ce mois <b>${st.month.length}</b> · ${eur(sum(st.month))}</span></div>
+      ${S.edit === d.id ? `<form class="stack" data-edit-form="${d.id}" novalidate>${profileFields("e", L)}<div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
+      : S.pw === d.id ? `<form class="stack" data-pw-form="${d.id}" novalidate><label class="f" for="np">Nouveau mot de passe (8 caractères minimum)<input id="np" type="text" autocomplete="off" autocapitalize="off"></label><div class="actions"><button type="submit">Changer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
+      : `<div class="actions"><button class="ghost sm" data-edit="${d.id}">Modifier</button>${d.is_admin ? "" : `<button class="ghost sm" data-pw="${d.id}">Mot de passe</button><button class="${d.actif ? "danger" : ""} sm" data-actif="${d.id}|${d.actif ? "0" : "1"}">${d.actif ? "Désactiver" : "Réactiver"}</button>`}</div>`}
+    </article>`;
+  };
+  const link = location.origin + location.pathname;
+  return `<h2>Mon équipe</h2>
+  <p class="muted small">Chaque chauffeur se connecte avec son e-mail et son mot de passe sur l'espace chauffeur. Il voit seulement ses courses. Les clients paient sur son propre Revolut.</p>
+  ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé/i.test(S.teamMsg) ? "ok" : "err"}" role="status">${esc(S.teamMsg)}</div>` : ""}
+  ${list.map(card).join("")}
+  ${others.length < MAX_EQUIPE ? (S.add ? `<form id="add-form" class="panel stack" novalidate><h3>Nouveau chauffeur</h3>${profileFields("a")}
+      <label class="f" for="a-email">E-mail de connexion<input id="a-email" type="email" autocomplete="off" autocapitalize="off"></label>
+      <label class="f" for="a-pass">Mot de passe (8 caractères minimum)<input id="a-pass" type="text" autocomplete="off" autocapitalize="off"></label>
+      <div class="actions"><button type="submit" class="big">Ajouter le chauffeur</button></div><button type="button" class="ghost" data-close>Annuler</button></form>`
+    : `<button class="big" id="add-open">+ Ajouter un chauffeur (${others.length}/${MAX_EQUIPE})</button>`)
+    : `<p class="muted small center">Équipe complète : ${MAX_EQUIPE} chauffeurs.</p>`}
+  <div class="panel stack"><h3>Lien à donner à vos chauffeurs</h3><p class="mono small" style="word-break:break-all">${esc(link)}</p><div><button class="ghost sm" data-copy="${esc(link)}">Copier le lien</button></div></div>`;
+}
+
 function reglagesView() {
   const s = { ...DEFAULT_SETTINGS, ...S.settings }, T = tarifOf(S.settings);
-  return `<h2>Réglages</h2>
+  const profil = `<form id="me-form" class="panel stack" novalidate><h3>Mon profil et ma voiture</h3>
+    <p class="muted small">Vos clients voient votre prénom, votre voiture et votre plaque.</p>${profileFields("m", S.row)}
+    <button class="big" type="submit">Enregistrer</button></form>`;
+  const pw = `<form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
+  if (!isAdmin()) return `<h2>Réglages</h2>${profil}${pw}<div class="panel"><button class="ghost" id="logout">Se déconnecter</button></div>`;
+  return `<h2>Réglages</h2>${profil}
   <form id="tarif-form" class="panel stack" novalidate><h3>Prix au kilomètre</h3>
-    <p class="muted small">Plus la course est longue, moins le km est cher. Une course plus longue ne coûte jamais moins cher qu'une plus courte.</p>
+    <p class="muted small">Plus la course est longue, moins le km est cher. Une course plus longue ne coûte jamais moins cher qu'une plus courte. Valable pour toute l'équipe.</p>
     <div class="tbl"><table><thead><tr><th>Distance</th><th>€ / km</th></tr></thead><tbody>
     ${T.tiers.map((t, i) => { const from = i ? T.tiers[i - 1].upto : 0; return `<tr><td>${t.upto == null ? `Au-delà de ${from} km` : `${from} à <input class="mini mono" id="tu-${i}" type="number" inputmode="decimal" min="1" value="${t.upto}"> km`}</td><td><input class="mini mono" id="tr-${i}" type="number" inputmode="decimal" step="0.01" min="0" value="${Number(t.rate).toFixed(2)}"></td></tr>`; }).join("")}
     </tbody></table></div>
@@ -283,16 +389,15 @@ function reglagesView() {
     <div class="facts">${[5, 15, 30, 60, 100].map(k => `<span class="fact">${k} km → <b>${eur(priceFor(k, T))}</b></span>`).join("")}</div>
     ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
     <button class="big" type="submit">Enregistrer les tarifs</button></form>
-  <form id="pay-form" class="panel stack"><h3>Paiement par carte</h3>
-    <label class="f" for="p-revtag">Revtag Revolut (paiement par carte ou Apple Pay)<input id="p-revtag" class="mono" placeholder="@votrenom" value="${esc(s.revtag ? "@" + String(s.revtag).replace(/^@/, "") : "")}" autocapitalize="off" autocorrect="off"></label>
-    <p class="muted small">Avec un Revtag, vos clients ont un bouton « Payer par carte » qui ouvre Revolut avec le montant de la course. Sinon, ils voient votre IBAN pour un virement.</p>
+  <form id="pay-form" class="panel stack"><h3>Virement bancaire</h3>
+    <p class="muted small">Affiché aux clients qui paient par carte quand le chauffeur n'a pas de Revtag.</p>
     <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
     <label class="f" for="p-iban">IBAN<input id="p-iban" class="mono" value="${esc(s.iban || "")}"></label>
     <div class="row"><label class="f" for="p-bic">BIC<input id="p-bic" class="mono" value="${esc(s.bic || "")}"></label><label class="f" for="p-banque">Banque<input id="p-banque" value="${esc(s.banque || "")}"></label></div>
     <button class="big" type="submit">Enregistrer</button></form>
   <div class="panel stack"><h3>Liens</h3><p class="small">Lien à donner à vos clients :</p><p class="mono small" style="word-break:break-all">${esc(location.origin + location.pathname.replace(/chauffeur\.html$/, ""))}</p>
     <div class="actions"><button class="ghost sm" id="copy-link">Copier le lien client</button><button class="ghost sm" id="logout">Se déconnecter</button></div></div>
-  <form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
+  ${pw}`;
 }
 
 function bind() {
@@ -300,21 +405,35 @@ function bind() {
   on("[data-status]", "click", e => setStatus(e.currentTarget.dataset.status));
   on("[data-filter]", "click", e => { S.filter = e.currentTarget.dataset.filter; render(); });
   on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
+  on("[data-accept]", "click", async e => {
+    const btn = e.currentTarget, id = btn.dataset.accept; btn.disabled = true;
+    const { data, error } = await sb.rpc("accept_booking", { bid: id });
+    if (error) { toast(/prise|annul|autre/i.test(error.message) ? error.message : "Impossible d'accepter. Réessayez."); btn.disabled = false; return; }
+    const row = rowToBooking(data); S.bookings = S.bookings.map(x => x.id === id ? row : x);
+    toast("Course acceptée"); notifyClient(id, "accepted");
+    if (row.mode === "immediat") { S.row = { ...S.row, status: "course" }; startGPS(); }
+    render(); syncMap(false);
+  });
+  on("[data-refuse]", "click", async e => {
+    const id = e.currentTarget.dataset.refuse; e.currentTarget.disabled = true;
+    const { error } = await sb.rpc("refuse_booking", { bid: id });
+    toast(error ? "Refus impossible" : "Course passée au chauffeur suivant");
+  });
   on("[data-st]", "click", async e => {
     const [id, st] = e.currentTarget.dataset.st.split("|"), b = S.bookings.find(x => x.id === id);
     try {
       const patch = { statut: st };
-      if (b) { const { id: _i, statut: _s, clientUid: _c, ...doc } = b; doc.termineeAt = st === "terminee" ? Date.now() : null;
-        if (st === "confirmee" && b.mode === "immediat") { doc.phase = "approche"; doc.startAt = Date.now(); }
-        if (st !== "confirmee") doc.phase = st === "terminee" ? "fini" : null;
-        patch.doc = doc; }
+      if (b) { const doc = docOf(b); doc.termineeAt = st === "terminee" ? Date.now() : null; if (st !== "confirmee") doc.phase = st === "terminee" ? "fini" : null; patch.doc = doc; }
       const { error } = await sb.from("bookings").update(patch).eq("id", id); if (error) throw error;
-      toast(st === "confirmee" ? "Course acceptée" : st === "terminee" ? "Course terminée" : st === "annulee" ? "Course annulée" : "Remise en attente");
-      const d = driver();
-      if (st === "confirmee") notifyClient(id, "accepted");
-      if (st === "confirmee" && b?.mode === "immediat" && d.status === "dispo") setStatus("course");
-      else if (st === "terminee" && d.status === "course") setStatus("dispo");
+      toast(st === "terminee" ? "Course terminée" : st === "annulee" ? "Course annulée" : "Enregistré");
+      if (b && mine(b) && b.statut === "confirmee" && driver().status === "course") setStatus("dispo");
     } catch { toast("Mise à jour impossible"); }
+  });
+  on("[data-repend]", "click", async e => {
+    const id = e.currentTarget.dataset.repend, b = S.bookings.find(x => x.id === id); if (!b) return;
+    const doc = docOf(b); doc.phase = null; doc.termineeAt = null; delete doc.chauffeur;
+    const { error } = await sb.from("bookings").update({ statut: "en_attente", driver_id: null, offered_to: null, offered_at: null, refused: [], doc }).eq("id", id);
+    toast(error ? "Mise à jour impossible" : "Remise en attente (ouverte à tous)");
   });
   on("[data-start]", "click", async e => {
     const b = S.bookings.find(x => x.id === e.currentTarget.dataset.start); if (!b) return;
@@ -342,6 +461,45 @@ function bind() {
     if (error) return toast("Suppression impossible");
     S.bookings = S.bookings.filter(x => x.id !== btn.dataset.del); toast("Course supprimée"); render(); syncMap(false);
   });
+  // Équipe
+  on("[data-edit]", "click", e => { S.edit = e.currentTarget.dataset.edit; S.pw = null; S.add = false; S.teamMsg = ""; render(); });
+  on("[data-pw]", "click", e => { S.pw = e.currentTarget.dataset.pw; S.edit = null; S.add = false; S.teamMsg = ""; render(); });
+  on("[data-close]", "click", () => { S.edit = S.pw = null; S.add = false; render(); });
+  on("#add-open", "click", () => { S.add = true; S.edit = S.pw = null; S.teamMsg = ""; render(); $("#a-prenom")?.focus(); });
+  on("[data-edit-form]", "submit", async e => {
+    e.preventDefault(); const id = e.currentTarget.dataset.editForm, f = readProfile("e");
+    if (!f.prenom) return toast("Le prénom est obligatoire");
+    try { await team("update", { id, ...f }); if (id === S.uid) { S.row = { ...S.row, ...f }; if (isAdmin()) writeSettings({ revtag: f.revtag }).catch(() => { }); }
+      S.edit = null; S.teamMsg = "Fiche enregistrée."; await loadTeamList(); render(); } catch (err) { toast(err.message); }
+  });
+  on("[data-pw-form]", "submit", async e => {
+    e.preventDefault(); const id = e.currentTarget.dataset.pwForm, password = $("#np").value;
+    if (password.length < 8) return toast("8 caractères minimum");
+    try { await team("password", { id, password }); S.pw = null; S.teamMsg = "Mot de passe changé. Donnez-le au chauffeur."; render(); } catch (err) { toast(err.message); }
+  });
+  on("[data-actif]", "click", async e => {
+    const btn = e.currentTarget, [id, v] = btn.dataset.actif.split("|");
+    if (v === "0" && btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer"; return; }
+    btn.disabled = true;
+    try { await team("actif", { id, actif: v === "1" }); S.teamMsg = v === "1" ? "Chauffeur réactivé." : "Chauffeur désactivé : il ne peut plus se connecter."; await loadTeamList(); render(); }
+    catch (err) { toast(err.message); btn.disabled = false; }
+  });
+  $("#add-form")?.addEventListener("submit", async e => {
+    e.preventDefault(); const f = readProfile("a"), email = $("#a-email").value.trim(), password = $("#a-pass").value;
+    if (!f.prenom) return toast("Le prénom est obligatoire");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast("Adresse e-mail invalide");
+    if (password.length < 8) return toast("Mot de passe : 8 caractères minimum");
+    const btn = e.currentTarget.querySelector("[type=submit]"); btn.disabled = true; btn.textContent = "Ajout…";
+    try { await team("create", { ...f, email, password }); S.add = false;
+      S.teamMsg = `${f.prenom} est ajouté. Envoyez-lui le lien ci-dessous, son e-mail (${email}) et son mot de passe.`; await loadTeamList(); render(); }
+    catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Ajouter le chauffeur"; }
+  });
+  // Réglages
+  $("#me-form")?.addEventListener("submit", async e => {
+    e.preventDefault(); const f = readProfile("m");
+    if (!f.prenom) return toast("Le prénom est obligatoire");
+    try { await writeMe(f); if (isAdmin()) await writeSettings({ revtag: f.revtag }).catch(() => { }); toast("Enregistré"); render(); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
+  });
   $("#tarif-form")?.addEventListener("submit", e => {
     e.preventDefault(); const T = tarifOf(S.settings), tiers = []; let prev = 0;
     for (let i = 0; i < T.tiers.length; i++) {
@@ -355,10 +513,10 @@ function bind() {
   });
   $("#pay-form")?.addEventListener("submit", e => {
     e.preventDefault();
-    saveSettings({ revtag: $("#p-revtag").value.trim().replace(/^@/, ""), titulaire: $("#p-tit").value.trim(), iban: $("#p-iban").value.trim().toUpperCase(), bic: $("#p-bic").value.trim().toUpperCase(), banque: $("#p-banque").value.trim() }, "Enregistré");
+    saveSettings({ titulaire: $("#p-tit").value.trim(), iban: $("#p-iban").value.trim().toUpperCase(), bic: $("#p-bic").value.trim().toUpperCase(), banque: $("#p-banque").value.trim() }, "Enregistré");
   });
   $("#copy-link")?.addEventListener("click", () => copy(location.origin + location.pathname.replace(/chauffeur\.html$/, "")));
-  $("#logout")?.addEventListener("click", async () => { await setStatus("off"); sb.auth.signOut(); });
+  $("#logout")?.addEventListener("click", async () => { if (driver().status !== "off") await setStatus("off"); sb.auth.signOut(); });
   $("#pw-form")?.addEventListener("submit", async e => {
     e.preventDefault(); const pw = $("#pw-new").value;
     if (pw.length < 8) return toast("8 caractères minimum");
@@ -371,34 +529,50 @@ function bind() {
 if (!configured) notConfiguredScreen($("#app"));
 else {
   let subs = [], current;  // undefined au départ : le premier appel affiche toujours un écran
-  const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  const typing = () => ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  const quiet = () => typing() || S.sliding || editingForm();
+  const sig = d => d ? JSON.stringify({ ...d, lat: 0, lng: 0, at: 0 }) : "";
   async function onUser(user) {
     if ((user?.id || null) === current) return; current = user?.id || null;
     subs.forEach(c => sb.removeChannel(c)); subs = [];
-    S.user = user || null; S.ok = false;
+    S.user = user || null; S.uid = user?.id || null; S.ok = false; S.row = null; S.team = []; S.teamList = null; S.bookings = []; S.seen = null;
     if (!user || user.is_anonymous) { S.user = null; render(); return; }
     const { data: isDriver } = await sb.rpc("is_driver");
     S.ok = isDriver === true;
     if (!S.ok) { render(); return; }
+    subs.push(watchTable("drivers", async () => {
+      const { data, error } = await sb.from("drivers").select("*"); if (error) throw error; return data;
+    }, rows => {
+      const me = rows.find(r => r.id === S.uid);
+      if (!me || !me.actif) { S.ok = false; render(); return; }
+      const first = !S.row, changed = sig(me) !== sig(S.row) || rows.map(sig).join() !== S.team.map(sig).join();
+      // Garder la position la plus récente connue localement
+      S.row = S.me && S.row ? { ...me, lat: S.row.lat ?? me.lat, lng: S.row.lng ?? me.lng, at: Math.max(S.row.at || 0, me.at || 0) } : me;
+      S.team = rows;
+      if (first && me.status !== "off") startGPS();
+      if (first || (changed && !quiet() && !activeRide())) render();
+      syncMap(false);
+    }));
     subs.push(watchSettings(doc => {
       const first = !S.settings; S.settings = doc || {};
-      if (first && driver().status !== "off") startGPS();
-      if (first || (!typing() && !S.sliding && !activeRide())) render(); syncMap(false);
+      if (first || (!quiet() && !activeRide())) render(); syncMap(false);
     }));
     subs.push(watchTable("bookings", async () => {
       const { data, error } = await sb.from("bookings").select("*").order("created_at", { ascending: false }).limit(500);
       if (error) throw error; return data.map(rowToBooking);
     }, rows => {
       S.bookings = rows;
-      const pend = new Set(rows.filter(b => b.statut === "en_attente").map(b => b.id));
-      if (S.seen) { const fresh = [...pend].filter(id => !S.seen.has(id)); if (fresh.length) { beep(); toast("Nouvelle demande de course"); } }
-      S.seen = pend;
-      if (!typing() && !S.sliding) render(); syncMap(false);
+      const offers = new Set(rows.filter(offerForMe).map(b => b.id));
+      if (S.seen) { const n = [...offers].filter(id => !S.seen.has(id)); if (n.length) { beep(); toast("Nouvelle course proposée"); } }
+      S.seen = offers;
+      if (!quiet()) render(); syncMap(false);
     }));
     subs.push(watchTable("clients", async () => {
       const { data, error } = await sb.from("clients").select("*"); if (error) throw error; return data;
-    }, rows => { S.clients = rows; if (S.tab === "clients" && !typing()) render(); }));
+    }, rows => { S.clients = rows || []; if (S.tab === "clients" && !quiet()) render(); }));
   }
+  // Les offres qui passent à un autre chauffeur ne déclenchent pas toujours d'événement : on rafraîchit régulièrement
+  setInterval(() => { if (document.visibilityState === "visible") subs.forEach(c => c.refresh?.()); }, 20000);
   sb.auth.getSession().then(({ data }) => onUser(data.session?.user));
   sb.auth.onAuthStateChange((_e, session) => { setTimeout(() => onUser(session?.user), 0); });
 }
