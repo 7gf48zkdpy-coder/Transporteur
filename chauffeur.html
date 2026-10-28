@@ -564,15 +564,47 @@ function reglagesView() {
   <button class="ghost big" id="logout">Se déconnecter</button>`;
 }
 
-// Forfaits aéroports (compte principal) : un prix fixe par département et par aéroport
-function forfaitsForm() {
-  const F = S.settings?.forfaits; if (!F?.prix || !F?.aeroports) return "";
-  return det("t-fx", "Grille aéroports par département", `<form id="fx-form" class="stack" novalidate>
-    <p class="muted small">Prix fixe entre un département et un aéroport, dans les deux sens. 0 = prix au km.</p>
-    <div class="tbl"><table><thead><tr><th>Départ.</th>${F.aeroports.map(a => `<th>${esc(a.code)} €</th>`).join("")}</tr></thead><tbody>
-    ${F.prix.map((r, i) => `<tr><td>${esc(r.dep)} ${esc(r.nom)}</td>${F.aeroports.map(a => `<td><input class="mini mono" id="fx-${i}-${a.code}" type="number" inputmode="decimal" min="0" value="${Number(r[a.code]) || 0}"></td>`).join("")}</tr>`).join("")}
-    </tbody></table></div>
-    <button type="submit">Enregistrer la grille</button></form>`);
+// Forfaits : une seule liste de prix fixes, rangée par destination.
+// Deux sortes de lignes, enregistrées comme avant (le calcul des prix côté serveur ne change pas) :
+//  - lieu ↔ lieu   → forfaits.trajets   (ex. Paris centre ↔ Roissy-CDG)
+//  - département ↔ aéroport → forfaits.prix (ex. tout le 78 ↔ Orly)
+// Le serveur applique d'abord le forfait entre lieux (plus précis), sinon celui du département, sinon le prix au km.
+function forfaitsSection() {
+  const F = S.settings?.forfaits || {}, D = tdraft(), AE = F.aeroports || [];
+  const nomLieu = id => D.lieux.find(l => l.id === id)?.nom || AE.find(a => a.code === id)?.nom || id;
+  const isAero = id => AE.some(a => a.code === id);
+  const field = (id, v) => `<input class="mini mono" id="${id}" type="number" inputmode="decimal" min="0" value="${v}" aria-label="Prix en euros">`;
+  // Regroupement par destination (aéroport s'il y en a un dans le trajet)
+  const groups = new Map(); const add = (k, row) => { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(row); };
+  D.trajets.forEach((t, i) => {
+    const dest = isAero(t.b) ? t.b : isAero(t.a) ? t.a : "autres", from = dest === t.b ? t.a : t.b;
+    add(dest, { lieu: true, label: nomLieu(from), sub: "", input: field("tt-" + i, t.prix), del: `data-tt-del="${i}"` });
+  });
+  D.prix.forEach((r, i) => AE.forEach(a => { if (Number(r[a.code]) > 0) add(a.code, { lieu: false, label: `${r.dep} ${r.nom}`, sub: "tout le département", input: field(`fx-${i}-${a.code}`, Number(r[a.code])), del: `data-fx-del="${i}|${a.code}"` }); }));
+  const order = [...AE.map(a => a.code), "autres"].filter(k => groups.has(k));
+  const rows = l => l.sort((a, b) => (b.lieu - a.lieu) || a.label.localeCompare(b.label)).map(r => `<div class="fz-row"><div class="grow"><span>${esc(r.label)}</span>${r.sub ? `<small>${r.sub}</small>` : ""}</div><span class="fz-eur">${r.input}<i>€</i></span><button type="button" class="fz-del" ${r.del} aria-label="Supprimer">✕</button></div>`).join("");
+  const nb = D.trajets.length + D.prix.reduce((n, r) => n + AE.filter(a => Number(r[a.code]) > 0).length, 0);
+  const opt = (v, l) => `<option value="${esc(v)}">${esc(l)}</option>`;
+  const fromOpts = `<optgroup label="Lieux">${D.lieux.map(l => opt("L:" + l.id, l.nom)).join("")}</optgroup><optgroup label="Départements (tout le département)">${D.prix.map((r, i) => opt("D:" + i, r.dep + " " + r.nom)).join("")}</optgroup>`;
+  const toOpts = D.lieux.map(l => opt(l.id, l.nom)).join("");
+  const used = id => D.trajets.some(t => t.a === id || t.b === id) || isAero(id);
+  return det("t-forf", `Forfaits<small>${nb}</small>`, `<form id="tf-forf" class="stack" novalidate>
+    <p class="fz-help">Si le trajet du client est dans cette liste, il paie ce prix fixe (aller ou retour). Sinon, c'est le prix au km.<br><span class="muted">Un lieu précis passe avant son département.</span></p>
+    ${order.map(k => `<div class="fz-group"><p class="fz-dest">${k === "autres" ? "Autres trajets" : "↔ " + esc(nomLieu(k))}</p>${rows(groups.get(k))}</div>`).join("") || `<p class="muted small">Aucun forfait.</p>`}
+    ${det("fz-add", "+ Ajouter un forfait", `<div class="stack">
+      <div class="row"><label class="f" for="tt-a">Départ<select id="tt-a">${fromOpts}</select></label><label class="f" for="tt-b">Arrivée<select id="tt-b">${toOpts}</select></label></div>
+      <div class="row"><label class="f" for="tt-prix">Prix (€)<input id="tt-prix" class="mono" type="number" inputmode="decimal" min="0"></label><div style="align-self:end"><button type="button" class="ghost" id="tt-add">Ajouter</button></div></div>
+      <p class="muted small">Un département ne peut être relié qu'à un aéroport.</p></div>`, { cls: "inner" })}
+    ${det("fz-zones", "Zones (avancé)", `<div class="stack">
+      <p class="muted small">Une zone = un point + un rayon. Une adresse à moins de ce rayon compte comme ce lieu.</p>
+      <div class="tbl"><table class="ftbl"><thead><tr><th>Lieu</th><th>Rayon km</th><th></th></tr></thead><tbody>
+      ${D.lieux.map((l, i) => `<tr><td>${esc(l.nom)}</td><td><input class="mini mono" id="tl-r-${i}" type="number" inputmode="decimal" step="0.5" min="0.5" value="${l.rayon}"></td><td>${used(l.id) ? "" : `<button type="button" class="link" data-tl-del="${i}" aria-label="Supprimer ce lieu" style="color:var(--bad)">✕</button>`}</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="row"><label class="f" for="tl-nom">Nouveau lieu<input id="tl-nom" placeholder="ex. Lille centre" autocomplete="off"></label><label class="f" for="tl-rayon">Rayon (km)<input id="tl-rayon" class="mono" type="number" inputmode="decimal" step="0.5" min="0" value="3"></label></div>
+      <div class="ac"><label class="f" for="tl-addr">Adresse du point central<input id="tl-addr" placeholder="Rechercher une adresse" autocomplete="off"></label><div class="sugg" id="tl-sugg" hidden></div></div>
+      <p class="small muted" id="tl-picked">${S.tlPick ? "Point choisi : " + esc(S.tlPick.label) : ""}</p>
+      <button type="button" class="ghost" id="tl-add">+ Ajouter ce lieu</button></div>`, { cls: "inner" })}
+    <button type="submit">Enregistrer les forfaits</button></form>`);
 }
 /* ---------- tarifs (compte principal) ---------- */
 const TDEF = { min: 9, base: 3, km: 1.5, minute: 0.2, arrondi: 0.5, longueDistanceKm: 100, approche: { payante: true, seuilMin: 15 }, horaires: { avanceMinMinutes: 30, avanceMaxJours: 90 },
@@ -584,7 +616,7 @@ const rnd = (x, a) => Math.round(x / (a || 0.5)) * (a || 0.5);
 const chk = id => !!$("#" + id)?.checked;
 // Brouillon des listes (codes promo, forfaits, lieux) : modifiées à l'écran puis enregistrées d'un coup
 function tdraft() {
-  if (!S.td) { const T = TT(), F = S.settings?.forfaits || {}; S.td = JSON.parse(JSON.stringify({ promos: T.promos || [], trajets: F.trajets || [], lieux: F.lieux || [] })); }
+  if (!S.td) { const T = TT(), F = S.settings?.forfaits || {}; S.td = JSON.parse(JSON.stringify({ promos: T.promos || [], trajets: F.trajets || [], lieux: F.lieux || [], prix: F.prix || [] })); }
   return S.td;
 }
 function readPromos() {
@@ -595,6 +627,8 @@ function readPromos() {
 }
 function readTrajets() { const D = tdraft(); D.trajets = D.trajets.map((t, i) => $("#tt-" + i) ? { ...t, prix: num("tt-" + i) } : t); }
 function readLieux() { const D = tdraft(); D.lieux = D.lieux.map((l, i) => $("#tl-r-" + i) ? { ...l, rayon: num("tl-r-" + i) || 1 } : l); }
+function readGrid() { const D = tdraft(), codes = (S.settings?.forfaits?.aeroports || []).map(a => a.code); D.prix = D.prix.map((r, i) => { const n = { ...r }; codes.forEach(c => { if ($(`#fx-${i}-${c}`)) n[c] = Math.max(0, Math.round(num(`fx-${i}-${c}`))); }); return n; }); }
+function readForf() { readTrajets(); readLieux(); readGrid(); }
 async function saveTarif(patch, msg) { await saveSettings({ tarification: { ...TT(), ...patch } }, msg); }
 async function loadHist() {
   const { data } = await sb.from("tarif_historique").select("*").order("at", { ascending: false }).limit(30);
@@ -662,25 +696,7 @@ function tarifsView() {
       <div><button type="button" class="link" data-tp-del="${i}" style="color:var(--bad)">Supprimer ce code</button></div></div>`).join("") : `<p class="muted small">Aucun code.</p>`}
     <button type="button" class="ghost" id="tp-add">+ Ajouter un code</button>
     <button type="submit">Enregistrer les codes</button></form>`)}
-  ${det("t-traj", `Forfaits entre deux lieux<small>${D.trajets.length}</small>`, `<form id="tf-traj" class="stack" novalidate>
-    <p class="muted small">Prix fixe dans les deux sens (prix Éco, la catégorie s'applique en plus).</p>
-    <div class="tbl"><table class="ftbl"><thead><tr><th>Trajet</th><th>Prix €</th><th></th></tr></thead><tbody>
-    ${D.trajets.map((t, i) => `<tr><td>${esc(nomLieu(t.a))} ↔ ${esc(nomLieu(t.b))}${t.min ? `<br><small class="muted">fourchette ${t.min}–${t.max} €</small>` : ""}</td><td><input class="mini mono" id="tt-${i}" type="number" inputmode="decimal" min="0" value="${t.prix}"></td><td><button type="button" class="link" data-tt-del="${i}" aria-label="Supprimer ce forfait" style="color:var(--bad)">✕</button></td></tr>`).join("")}
-    </tbody></table></div>
-    <div class="row"><label class="f" for="tt-a">De<select id="tt-a">${lieuOpts()}</select></label><label class="f" for="tt-b">À<select id="tt-b">${lieuOpts()}</select></label></div>
-    <div class="row">${field("tt-prix", "Prix (€)", "")}<div style="align-self:end"><button type="button" class="ghost" id="tt-add">+ Ajouter</button></div></div>
-    <button type="submit">Enregistrer les forfaits</button></form>`)}
-  ${det("t-lieux", `Lieux des forfaits<small>${D.lieux.length}</small>`, `<form id="tf-lieux" class="stack" novalidate>
-    <p class="muted small">Un lieu = un point + un rayon en km.</p>
-    <div class="tbl"><table class="ftbl"><thead><tr><th>Lieu</th><th>Rayon km</th><th></th></tr></thead><tbody>
-    ${D.lieux.map((l, i) => `<tr><td>${esc(l.nom)}</td><td><input class="mini mono" id="tl-r-${i}" type="number" inputmode="decimal" step="0.5" min="0.5" value="${l.rayon}"></td><td>${used(l.id) ? "" : `<button type="button" class="link" data-tl-del="${i}" aria-label="Supprimer ce lieu" style="color:var(--bad)">✕</button>`}</td></tr>`).join("")}
-    </tbody></table></div>
-    <div class="row"><label class="f" for="tl-nom">Nom du lieu<input id="tl-nom" placeholder="ex. Lille centre" autocomplete="off"></label>${field("tl-rayon", "Rayon (km)", 3, "0.5")}</div>
-    <div class="ac"><label class="f" for="tl-addr">Adresse du point central<input id="tl-addr" placeholder="Rechercher une adresse" autocomplete="off"></label><div class="sugg" id="tl-sugg" hidden></div></div>
-    <p class="small muted" id="tl-picked">${S.tlPick ? "Point choisi : " + esc(S.tlPick.label) : ""}</p>
-    <button type="button" class="ghost" id="tl-add">+ Ajouter ce lieu</button>
-    <button type="submit">Enregistrer les lieux</button></form>`)}
-  ${forfaitsForm()}
+  ${forfaitsSection()}
   ${det("t-hist", "Historique des changements", `<div class="hist" id="hist">${histHtml()}</div>`)}
   </div>`;
 }
@@ -713,16 +729,28 @@ function bindTarifs() {
     saveTarif({ promos: P }, "Codes promo enregistrés");
   });
   $("#tt-add")?.addEventListener("click", () => {
-    readTrajets(); const a = $("#tt-a").value, b = $("#tt-b").value, prix = num("tt-prix");
-    if (!a || !b || a === b) return toast("Choisis deux lieux différents");
+    readForf(); const from = $("#tt-a").value, b = $("#tt-b").value, prix = Math.round(num("tt-prix")), D = tdraft();
     if (!(prix > 0)) return toast("Indique un prix");
-    const D = tdraft(); if (D.trajets.some(t => (t.a === a && t.b === b) || (t.a === b && t.b === a))) return toast("Ce forfait existe déjà : change son prix dans la liste");
-    D.trajets.push({ a, b, prix }); render();
+    if (from.startsWith("D:")) {
+      const r = D.prix[+from.slice(2)];
+      if (!(S.settings?.forfaits?.aeroports || []).some(a => a.code === b)) return toast("Un département ne peut être relié qu'à un aéroport");
+      if (Number(r[b]) > 0) return toast("Ce forfait existe déjà : change son prix dans la liste");
+      r[b] = prix;
+    } else {
+      const a = from.slice(2);
+      if (a === b) return toast("Choisis deux lieux différents");
+      if (D.trajets.some(t => (t.a === a && t.b === b) || (t.a === b && t.b === a))) return toast("Ce forfait existe déjà : change son prix dans la liste");
+      D.trajets.push({ a, b, prix });
+    }
+    OPEN.delete("fz-add"); render(); toast("Ajouté. Pense à enregistrer.");
   });
-  on("[data-tt-del]", "click", e => { readTrajets(); tdraft().trajets.splice(+e.currentTarget.dataset.ttDel, 1); render(); });
-  $("#tf-traj")?.addEventListener("submit", e => { e.preventDefault(); readTrajets(); readLieux(); const D = tdraft(); saveSettings({ forfaits: { ...(S.settings.forfaits || {}), trajets: D.trajets, lieux: D.lieux } }, "Forfaits enregistrés").then(() => { S.td = null; render(); }); });
-  $("#tf-lieux")?.addEventListener("submit", e => { e.preventDefault(); readTrajets(); readLieux(); const D = tdraft(); saveSettings({ forfaits: { ...(S.settings.forfaits || {}), trajets: D.trajets, lieux: D.lieux } }, "Lieux enregistrés").then(() => { S.td = null; render(); }); });
-  on("[data-tl-del]", "click", e => { readLieux(); readTrajets(); tdraft().lieux.splice(+e.currentTarget.dataset.tlDel, 1); render(); });
+  on("[data-tt-del]", "click", e => { readForf(); tdraft().trajets.splice(+e.currentTarget.dataset.ttDel, 1); render(); });
+  on("[data-fx-del]", "click", e => { readForf(); const [i, c] = e.currentTarget.dataset.fxDel.split("|"); tdraft().prix[+i][c] = 0; render(); });
+  $("#tf-forf")?.addEventListener("submit", e => {
+    e.preventDefault(); readForf(); const D = tdraft();
+    saveSettings({ forfaits: { ...(S.settings.forfaits || {}), trajets: D.trajets, lieux: D.lieux, prix: D.prix } }, "Forfaits enregistrés").then(() => { S.td = null; render(); });
+  });
+  on("[data-tl-del]", "click", e => { readForf(); tdraft().lieux.splice(+e.currentTarget.dataset.tlDel, 1); render(); });
   // Recherche d'adresse pour un nouveau lieu
   const ad = $("#tl-addr"), sg = $("#tl-sugg"); let t, seq = 0;
   ad?.addEventListener("input", () => { clearTimeout(t); t = setTimeout(async () => {
@@ -735,7 +763,7 @@ function bindTarifs() {
   $("#tl-add")?.addEventListener("click", () => {
     const nom = $("#tl-nom").value.trim(), p = S.tlPick;
     if (!nom) return toast("Donne un nom au lieu"); if (!p) return toast("Choisis l'adresse dans la liste");
-    readLieux(); readTrajets();
+    readForf();
     const id = nom.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Math.random().toString(36).slice(2, 5);
     tdraft().lieux.push({ id, nom, lat: Math.round(p.lat * 1e5) / 1e5, lng: Math.round(p.lng * 1e5) / 1e5, rayon: num("tl-rayon") || 3 }); S.tlPick = null; render();
   });
@@ -912,11 +940,6 @@ function bind() {
     e.preventDefault(); const f = readProfile("m");
     if (!f.prenom) return toast("Le prénom est obligatoire");
     try { await writeMe(f); if (isAdmin()) await writeSettings({ revtag: f.revtag }).catch(() => { }); toast("Enregistré"); render(); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
-  });
-  $("#fx-form")?.addEventListener("submit", e => {
-    e.preventDefault(); const F = S.settings.forfaits;
-    const prix = F.prix.map((r, i) => { const n = { ...r }; F.aeroports.forEach(a => { n[a.code] = Math.max(0, Math.round(Number(String($(`#fx-${i}-${a.code}`).value).replace(",", ".")) || 0)); }); return n; });
-    saveSettings({ forfaits: { ...F, prix } }, "Grille enregistrée");
   });
   $("#pay-form")?.addEventListener("submit", e => {
     e.preventDefault();

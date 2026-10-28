@@ -126,3 +126,17 @@ details.cz-dots>.fold-b{padding:0 0 4px}
 .cz-card>details.fold{background:var(--soft);border:0}
 
 @media (max-width:380px){.kpis b{font-size:22px}.cz-time{font-size:30px}.cz-examples{grid-template-columns:repeat(2,1fr)}}
+
+/* Forfaits : une seule liste rangée par destination */
+.fz-help{font-size:15px;line-height:1.45}
+.fz-group{display:flex;flex-direction:column;background:var(--soft);border-radius:16px;padding:4px 6px 6px 14px}
+.fz-dest{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#9DB4EA;padding:10px 0 4px}
+.fz-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.fz-dest+.fz-row{border-top:0}
+.fz-row span{display:block;font-size:15px}
+.fz-row small{display:block;font-size:12px;color:var(--muted)}
+.fz-eur{display:flex!important;align-items:center;gap:6px;flex:none}
+.fz-eur i{font-style:normal;color:var(--muted);font-size:14px}
+.fz-eur input.mini{width:70px;min-height:40px;padding:8px 10px}
+button.fz-del{flex:none;background:none;border:0;color:var(--muted);min-height:40px;width:34px;padding:0;font-size:14px;font-weight:400}
+button.fz-del:active{color:var(--bad)}
