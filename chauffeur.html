@@ -30,7 +30,7 @@
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, docOf, carLabel, configured, DEFAULT_SETTINGS, $, esc, todayISO, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  revolutLink, CATS, searchPlaces, populaires, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+  revolutLink, CATS, ENERGIES, guessEnergie, searchPlaces, populaires, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -296,6 +296,7 @@ function signupView() {
     <button type="button" class="ghost" id="to-login">J'ai déjà un compte</button></form>`;
 }
 function bindSignup() {
+  bindEnergie();
   $("#to-login").onclick = () => { S.signup = false; S.err = ""; render(); };
   $("#signup").addEventListener("submit", async e => {
     e.preventDefault();
@@ -478,9 +479,24 @@ const profileFields = (p, d = {}) => `
   <label class="f" for="${p}-tel">Téléphone<input id="${p}-tel" type="tel" autocomplete="off" value="${esc(d.tel || "")}"></label>
   <div class="row"><label class="f" for="${p}-modele">Modèle de la voiture<input id="${p}-modele" placeholder="ex. Mercedes Classe E" autocomplete="off" value="${esc(d.modele || "")}"></label>
   <label class="f" for="${p}-plaque">Plaque<input id="${p}-plaque" class="mono" placeholder="AB-123-CD" autocapitalize="characters" autocomplete="off" value="${esc(d.plaque || "")}"></label></div>
+  <label class="f" for="${p}-energie">Motorisation<select id="${p}-energie" data-energie="${p}"><option value="">Choisir…</option>${Object.entries(ENERGIES).map(([k, v]) => `<option value="${k}" ${d.energie === k ? "selected" : ""}>${v}${k === "electrique" || k === "hybride" ? " · 🌿 badge Éco" : ""}</option>`).join("")}</select></label>
+  <p class="small muted" id="${p}-energie-hint">Électrique ou hybride : le badge 🌿 Éco s'affiche aux clients. Ça ne change pas la catégorie (Berline, SUV…).</p>
   <label class="f" for="${p}-revtag">Revtag Revolut (pour être payé par carte)<input id="${p}-revtag" class="mono" placeholder="@sonnom" autocapitalize="off" autocorrect="off" value="${esc(d.revtag ? "@" + d.revtag : "")}"></label>`;
 const readProfile = p => ({ prenom: $(`#${p}-prenom`).value.trim(), nom: $(`#${p}-nom`).value.trim(), tel: $(`#${p}-tel`).value.trim(),
-  modele: $(`#${p}-modele`).value.trim(), plaque: $(`#${p}-plaque`).value.trim().toUpperCase(), revtag: $(`#${p}-revtag`).value.trim().replace(/^@/, "") });
+  modele: $(`#${p}-modele`).value.trim(), plaque: $(`#${p}-plaque`).value.trim().toUpperCase(), revtag: $(`#${p}-revtag`).value.trim().replace(/^@/, ""),
+  energie: $(`#${p}-energie`)?.value || null });
+// Motorisation devinée d'après le modèle tapé (seulement si le chauffeur ne l'a pas encore choisie)
+function bindEnergie() {
+  document.querySelectorAll("[data-energie]").forEach(sel => {
+    const p = sel.dataset.energie, mod = $(`#${p}-modele`), hint = $(`#${p}-energie-hint`); if (!mod) return;
+    let auto = !sel.value;
+    sel.addEventListener("change", () => { auto = false; });
+    mod.addEventListener("input", () => {
+      if (!auto) return; const g = guessEnergie(mod.value); sel.value = g;
+      if (hint && g) hint.textContent = `Détecté d'après le modèle : ${ENERGIES[g]}${g === "electrique" || g === "hybride" ? " → badge 🌿 Éco" : ""}. Vérifiez.`;
+    });
+  });
+}
 function equipeView() {
   const list = S.teamList;
   if (!list) return `<div class="cz-head"><h2>Équipe</h2></div><div class="loading">Chargement…</div>`;
@@ -608,7 +624,7 @@ function forfaitsSection() {
 }
 /* ---------- tarifs (compte principal) ---------- */
 const TDEF = { min: 9, base: 3, km: 1.5, minute: 0.2, arrondi: 0.5, longueDistanceKm: 100, approche: { payante: true, seuilMin: 15 }, horaires: { avanceMinMinutes: 30, avanceMaxJours: 90 },
-  categories: [{ id: "eco", nom: "Éco", coef: 1, pax: 4, bag: 2 }, { id: "berline", nom: "Berline", coef: 1.1, pax: 4, bag: 3 }, { id: "premium", nom: "Berline Premium", coef: 1.4, pax: 3, bag: 3 }, { id: "van", nom: "Van", coef: 1.5, pax: 7, bag: 7 }],
+  categories: [{ id: "berline", nom: "Berline", coef: 1, pax: 4, bag: 3 }, { id: "suv", nom: "SUV", coef: 1.1, pax: 4, bag: 4 }, { id: "premium", nom: "Berline Premium", coef: 1.4, pax: 3, bag: 3 }, { id: "van", nom: "Van", coef: 1.5, pax: 7, bag: 7 }],
   supplements: { siegeEnfant: 5, arret: 5, dispoHeure: 35, attenteMin: 0.3, franchiseMin: 6, programmee: 0 }, promos: [], annulation: "" };
 const TT = () => ({ ...TDEF, ...(S.settings?.tarification || {}) });
 const num = id => { const v = Number(String($("#" + id)?.value ?? "").replace(",", ".")); return Number.isFinite(v) && v >= 0 ? v : 0; };
@@ -771,6 +787,7 @@ function bindTarifs() {
 function bind() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
   on("details[data-k]", "toggle", e => { const d = e.currentTarget; d.open ? OPEN.add(d.dataset.k) : OPEN.delete(d.dataset.k); });
+  bindEnergie();
   on("[data-status]", "click", e => setStatus(e.currentTarget.dataset.status));
   on("[data-filter]", "click", e => { S.filter = e.currentTarget.dataset.filter; render(); });
   on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
