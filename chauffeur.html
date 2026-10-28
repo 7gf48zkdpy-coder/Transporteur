@@ -15,10 +15,30 @@
 <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <script src="pwa.js" defer></script>
+<!-- Ouverture fluide : rien ne bloque l'affichage de l'écran de lancement -->
+<style>html{background:#060a13}</style>
+<link rel="preconnect" href="https://zzkxkbvnhfhtdkpeljjz.supabase.co" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="modulepreload" href="config.js">
+<link rel="modulepreload" href="shared.js">
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm" crossorigin>
+<script>
+// Polices et style de la carte : chargés juste APRÈS le premier affichage (sinon l'écran de lancement attend)
+window.__css = new Promise(function (ok) {
+  var go = function () {
+    if (go.done) return; go.done = true;
+    var h = ["https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=Cormorant+Garamond:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap", "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"], n = 0;
+    h.forEach(function (u) { var l = document.createElement("link"); l.rel = "stylesheet"; l.href = u; l.onload = l.onerror = function () { if (++n === h.length) ok(); }; document.head.appendChild(l); });
+  };
+  requestAnimationFrame(function () { setTimeout(go, 0); }); setTimeout(go, 400);
+});
+</script>
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap"><link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"></noscript>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="chauffeur.css">
 </head>
@@ -160,12 +180,20 @@ function activeView(r) {
 }
 async function saveSettings(patch, msg) { try { await writeSettings(patch); if (msg) toast(msg); render(); syncMap(false); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); } }
 
+// L'écran de lancement reste affiché jusqu'à ce que l'appli soit prête (premier écran + carte), 4 s maximum
+const RDY = { view: false, map: true, css: false };
+const ready = k => { RDY[k] = true; if (RDY.view && RDY.map && RDY.css) window.__appReady = true; };
+window.__css.then(() => ready("css"));
+setTimeout(() => { window.__appReady = true; }, 4000);
+
 /* ---------- carte ---------- */
 let map = null; const M = { me: null, picks: [], mates: {} };
 function ensureMap() {
   if (map) return; $("#mapbox").hidden = false;
+  RDY.map = false;
   map = createMap($("#map"));
-  map.on("load", () => { syncMap(true); });
+  map.on("load", () => { syncMap(true); ready("map"); });
+  map.once("error", () => ready("map"));
 }
 const fresh = d => d && d.status !== "off" && d.lat != null && Date.now() - (d.at || 0) < 30 * 60000;
 function syncMap(fit) {
@@ -228,12 +256,12 @@ async function setStatus(status) {
 /* ---------- écrans ---------- */
 function render() {
   const app = $("#app");
-  if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = S.signup ? signupView() : loginView(); S.signup ? bindSignup() : bindLogin(); return; }
+  if (!S.user) { $("#bnav").hidden = true; document.body.classList.remove("has-nav"); app.innerHTML = S.signup ? signupView() : loginView(); S.signup ? bindSignup() : bindLogin(); ready("view"); return; }
   if (!S.ok) {
     app.innerHTML = S.pending
       ? `<div class="panel stack" style="margin-top:20px"><h2>Demande envoyée ✅</h2><p>Votre compte chauffeur est créé. Il doit maintenant être <b>accepté par le responsable</b>.</p><p class="muted small">Cette page s'ouvrira toute seule dès que c'est fait. Vous pouvez la fermer et revenir plus tard.</p><button class="ghost" id="out">Se déconnecter</button></div>`
       : `<div class="panel stack"><h2>Accès réservé</h2><p>Ce compte n'est pas un compte chauffeur, ou il a été désactivé.</p><button class="ghost" id="out">Se déconnecter</button></div>`;
-    $("#out").onclick = () => sb.auth.signOut(); return;
+    $("#out").onclick = () => sb.auth.signOut(); ready("view"); return;
   }
   if (!S.settings || !S.row) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
   ensureMap();
@@ -255,7 +283,7 @@ function render() {
   box.classList.toggle("big", !!act);
   if (map && (wasBig !== !!act || (showMap && !hadMap))) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
   app.innerHTML = devBar() + (act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : S.tab === "tarifs" ? tarifsView() : reglagesView());
-  bind();
+  bind(); ready("view");
   if (act) {
     updateNavDom(); updateNav(navState.key !== act.id + act.phase);
     clearInterval(waitTimer); if (act.phase === "arrive") { tickWait(); waitTimer = setInterval(tickWait, 1000); }
