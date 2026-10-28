@@ -34,7 +34,7 @@
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC,
   searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen,
-  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel, devis, populaires } from "./shared.js";
+  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel, devis, populaires, isEco, ECO_BADGE } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -45,8 +45,9 @@ const S = { push: "off", uid: null, me: undefined, settings: {}, rides: [], driv
 // Réglages de tarif (affichage seulement : le prix est toujours calculé par le serveur)
 const TT = () => S.settings?.tarification || {};
 const SUP = () => TT().supplements || {};
-// Un chauffeur peut faire une course de sa catégorie (Premium fait aussi Berline, tout le monde fait Éco)
-const catOk = (dc, want) => !want || want === "eco" || dc === want || (want === "berline" && dc === "premium");
+// Un chauffeur peut faire une course de sa catégorie ou d'une catégorie moins chère
+// (tout le monde fait Berline ; SUV, Premium et Van font aussi SUV) — même règle que le serveur (cat_ok)
+const catOk = (dc, want) => !want || want === "eco" || want === "berline" || dc === want || (want === "suv" && (dc === "premium" || dc === "van"));
 
 /* ---------- carte ---------- */
 const map = createMap($("#map"));
@@ -89,7 +90,7 @@ function chip() {
   const [cls, txt] = free ? ["dispo", free > 1 ? free + " chauffeurs disponibles" : "Chauffeur disponible"] : busy ? ["course", busy > 1 ? "Chauffeurs en course" : "Chauffeur en course"] : ["off", "Chauffeurs hors ligne"];
   $("#dchip").innerHTML = `<span class="dot d-${cls}"></span>${txt}`;
 }
-const driversSig = () => S.drivers.map(d => d.id + d.status + d.prenom + d.modele).join();
+const driversSig = () => S.drivers.map(d => d.id + d.status + d.prenom + d.modele + (d.energie || "")).join();
 async function refreshDrivers() {
   try {
     const before = driversSig(); S.drivers = await driversLive();
@@ -238,7 +239,7 @@ function mainView() {
   <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
 }
 
-const catName = () => S.q?.categorieNom || ({ eco: "Éco", berline: "Berline", premium: "Premium", van: "Van" }[S.form.categorie] || "");
+const catName = () => S.q?.categorieNom || ({ berline: "Berline", suv: "SUV", premium: "Premium", van: "Van" }[S.form.categorie] || "");
 // Le devis : catégories, prix détaillé, conditions — tout vient du serveur
 function quotePanel(q, m) {
   const now = m === "now";
@@ -278,7 +279,7 @@ function driverPicker(m) {
     <span>${dot ? `<span class="dot d-${dot}"></span> ` : ""}${title}</span><small>${sub}</small></button>`;
   return `<div class="stack" style="gap:6px"><span class="small muted">Chauffeur</span><div class="drvs" role="group" aria-label="Choisir un chauffeur">
     ${btn("", "Le plus proche", now ? (freeDrivers().length ? "Le plus rapide" : "Aucun disponible") : "Premier disponible", "", false)}
-    ${list.map(x => { const [dot, txt] = state(x); return btn(x.id, esc(x.prenom), esc(now && dot !== "dispo" ? txt : x.modele || txt), now ? dot : "", now && dot !== "dispo"); }).join("")}
+    ${list.map(x => { const [dot, txt] = state(x); return btn(x.id, esc(x.prenom), esc(now && dot !== "dispo" ? txt : (x.modele || txt) + (isEco(x) ? " · 🌿 Éco" : "")), now ? dot : "", now && dot !== "dispo"); }).join("")}
   </div></div>`;
 }
 function driverBox(r) {
@@ -286,7 +287,7 @@ function driverBox(r) {
   if (!c) return r.statut === "en_attente" && r.requestedDriver && byId(r.requestedDriver) ? `<p class="small muted">Demande envoyée à <b>${esc(byId(r.requestedDriver).prenom)}</b>.</p>` : "";
   if (r.statut !== "confirmee" && r.statut !== "terminee") return "";
   const tel = String(c.tel || "").replace(/\s/g, "");
-  return `<div class="carline"><div style="flex:1;min-width:0"><div><b>${esc(c.prenom)}</b>${c.modele ? " · " + esc(c.modele) : ""}</div>${c.plaque ? `<span class="plate">${esc(c.plaque)}</span>` : ""}</div>
+  return `<div class="carline"><div style="flex:1;min-width:0"><div><b>${esc(c.prenom)}</b>${c.modele ? " · " + esc(c.modele) : ""}${isEco(c) ? " " + ECO_BADGE : ""}</div>${c.plaque ? `<span class="plate">${esc(c.plaque)}</span>` : ""}</div>
     ${tel && r.statut === "confirmee" ? `<a class="navbtn" href="tel:${esc(tel)}" style="flex:none">Appeler</a>` : ""}</div>`;
 }
 // Paiement par carte : sur le Revolut du chauffeur qui a accepté (sinon celui du compte principal)
