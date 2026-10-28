@@ -16,10 +16,30 @@
 <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <script src="pwa.js" defer></script>
+<!-- Ouverture fluide : rien ne bloque l'affichage de l'écran de lancement -->
+<style>html{background:#060a13}</style>
+<link rel="preconnect" href="https://zzkxkbvnhfhtdkpeljjz.supabase.co" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="modulepreload" href="config.js">
+<link rel="modulepreload" href="shared.js">
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm" crossorigin>
+<script>
+// Polices et style de la carte : chargés juste APRÈS le premier affichage (sinon l'écran de lancement attend)
+window.__css = new Promise(function (ok) {
+  var go = function () {
+    if (go.done) return; go.done = true;
+    var h = ["https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=Cormorant+Garamond:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap", "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"], n = 0;
+    h.forEach(function (u) { var l = document.createElement("link"); l.rel = "stylesheet"; l.href = u; l.onload = l.onerror = function () { if (++n === h.length) ok(); }; document.head.appendChild(l); });
+  };
+  requestAnimationFrame(function () { setTimeout(go, 0); }); setTimeout(go, 400);
+});
+</script>
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,400;112,500;112,600;125,700&family=IBM+Plex+Mono:wght@400;500&display=swap"><link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"></noscript>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -49,8 +69,15 @@ const SUP = () => TT().supplements || {};
 // (tout le monde fait Berline ; SUV, Premium et Van font aussi SUV) — même règle que le serveur (cat_ok)
 const catOk = (dc, want) => !want || want === "eco" || want === "berline" || dc === want || (want === "suv" && (dc === "premium" || dc === "van"));
 
+// L'écran de lancement reste affiché jusqu'à ce que l'appli soit prête (carte + premier écran), 4 s maximum
+const RDY = { view: false, map: false, css: false };
+const ready = k => { RDY[k] = true; if (RDY.view && RDY.map && RDY.css) window.__appReady = true; };
+window.__css.then(() => ready("css"));
+setTimeout(() => { window.__appReady = true; }, 4000);
+
 /* ---------- carte ---------- */
 const map = createMap($("#map"));
+map.once("load", () => ready("map")); map.once("error", () => ready("map"));
 const M = { pick: null, drop: null, cars: {} };
 function placeMarker(key, kind, p) {
   if (!p) { if (M[key]) { M[key].remove(); M[key] = null; } return; }
@@ -145,9 +172,9 @@ function render() {
   $("#who").textContent = S.me?.prenom ? "Bonjour " + S.me.prenom : "";
   const app = $("#app");
   if (S.me === undefined) { app.innerHTML = `<div class="loading">Chargement…</div>`; return; }
-  if (!S.me || S.editing) { app.innerHTML = devBar() + signupView(); bindSignup(); return; }
+  if (!S.me || S.editing) { app.innerHTML = devBar() + signupView(); bindSignup(); ready("view"); return; }
   app.innerHTML = devBar() + mainView();
-  bindMain();
+  bindMain(); ready("view");
 }
 
 function signupView() {
