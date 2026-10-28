@@ -13,11 +13,14 @@ const CORS = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const FIELDS = ["prenom", "nom", "tel", "modele", "plaque", "revtag"] as const;
+const ENERGIES = ["electrique", "hybride", "essence", "diesel", "gpl"];
 const clean = (o: Record<string, unknown>) => {
   const r: Record<string, string> = {};
   for (const k of FIELDS) if (typeof o?.[k] === "string") r[k] = (o[k] as string).trim().slice(0, 80);
   if (r.plaque) r.plaque = r.plaque.toUpperCase();
   if (r.revtag) r.revtag = r.revtag.replace(/^@/, "").replace(/^https?:\/\/revolut\.me\//i, "").replace(/[^A-Za-z0-9_.-]/g, "");
+  // Motorisation (électrique / hybride = badge Éco) : valeur connue ou vide
+  if ("energie" in (o ?? {})) (r as Record<string, string | null>).energie = ENERGIES.includes(String(o.energie)) ? String(o.energie) : null;
   return r;
 };
 

@@ -42,7 +42,19 @@ export const docOf = b => { const { id, statut, clientUid, driverId, offeredTo, 
 export async function driversLive() {
   const { data, error } = await sb.rpc("drivers_live2"); if (error) throw error; return data || [];
 }
-export const carLabel = d => [d?.modele, d?.plaque].filter(Boolean).join(" · ");
+// Motorisation du véhicule : électrique ou hybride = badge « Éco » (indépendant de la catégorie Berline / SUV…)
+export const ENERGIES = { electrique: "Électrique", hybride: "Hybride", essence: "Essence", diesel: "Diesel", gpl: "GPL" };
+export const isEco = d => d?.energie === "electrique" || d?.energie === "hybride";
+export const ECO_BADGE = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#7ee2a8;background:rgba(34,201,122,.14);border-radius:999px;padding:2px 9px;white-space:nowrap">🌿 Éco</span>`;
+// Devine la motorisation d'après le modèle tapé (simple suggestion : le chauffeur peut corriger)
+export function guessEnergie(modele) {
+  const m = String(modele || "").toLowerCase();
+  if (!m.trim()) return "";
+  if (/\b(tesla|model ?[3sxy]|zo[eé]|e-?20(08|8)|e-?c4|e-?tron|id\.? ?[3-7]|leaf|ev ?[369]|ioniq ?[56]|enyaq|mach-?e|polestar|byd|mg ?4|mg ?5|spring|bz4x|eq[abcesv]|i[34x]\b|électrique|electrique|electric|e-?golf|e-?up|e-?208|megane e-?tech electri|scenic e-?tech|r5 e-?tech|kona electri|niro ev|e-?niro)/.test(m)) return "electrique";
+  if (/(hybrid|hybride|prius|c-?hr|rav ?4|corolla|yaris|camry|auris|e-?tech|phev|plug-?in|niro|ioniq|lexus|cr-?v|jazz|kuga|outlander|e-?hybrid|full hybrid|hev)/.test(m)) return "hybride";
+  return "";
+}
+export const carLabel = d => [d?.modele, d?.plaque, isEco(d) ? "🌿 Éco" : ""].filter(Boolean).join(" · ");
 export async function fetchSettings() {
   const { data, error } = await sb.from("settings").select("doc").eq("id", 1).maybeSingle();
   if (error) throw error; return data?.doc || {};
@@ -95,7 +107,7 @@ export async function devis(params) {
   const { data, error } = await sb.rpc("tarif_devis", { p: params });
   if (error) throw error; return data;
 }
-export const CATS = { eco: "Éco", berline: "Berline", premium: "Berline Premium", van: "Van" };
+export const CATS = { berline: "Berline", suv: "SUV", premium: "Berline Premium", van: "Van" };
 
 /* ---------- lieux populaires (suggestions de recherche, sans supplément) ---------- */
 export const POPULAIRES = [

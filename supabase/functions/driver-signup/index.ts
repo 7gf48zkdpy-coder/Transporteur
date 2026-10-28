@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
     const f = {
       prenom: s(b.prenom), nom: s(b.nom), tel: s(b.tel, 30), modele: s(b.modele), plaque: s(b.plaque, 20).toUpperCase(),
       revtag: s(b.revtag, 40).replace(/^@/, "").replace(/^https?:\/\/revolut\.me\//i, "").replace(/[^A-Za-z0-9_.-]/g, ""),
+      energie: ["electrique", "hybride", "essence", "diesel", "gpl"].includes(s(b.energie)) ? s(b.energie) : null,
     };
     if (!f.prenom || !f.nom) return json({ error: "Indiquez votre prénom et votre nom." }, 400);
     if (f.tel.replace(/\D/g, "").length < 9) return json({ error: "Indiquez un numéro de téléphone valide." }, 400);
