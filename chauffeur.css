@@ -1,0 +1,128 @@
+/* Espace chauffeur / compte principal : version simple et aérée.
+   S'ajoute à style.css (chargé uniquement par chauffeur.html). */
+
+body.cz #app{gap:18px}
+body.cz .wrap{padding-bottom:56px}
+.grow{flex:1;min-width:0}
+.ink{color:var(--ink)}
+
+/* La carte seulement sur l'onglet Courses, plus basse */
+body.cz .mapbox:not(.big){height:30vh;height:30svh;min-height:200px;max-height:300px}
+body.nomap #mapbox{display:none!important}
+body.nomap .sheet{margin-top:0;padding-top:22px}
+
+/* Titres */
+.cz-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:6px}
+.cz-head h2{font-size:34px}
+.cz-head .muted{font-size:15px}
+.cz-k{font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#9DB4EA;margin:6px 2px -4px}
+.cz-card .cz-k,.cz-card>.between .cz-k{margin:0}
+
+/* Cartes */
+.cz-card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
+.cz-card.new{box-shadow:inset 0 0 0 2px var(--gold-bright),var(--shadow)}
+.cz-sep{height:1px;background:var(--line);margin:4px 0}
+.cz-empty{text-align:center;padding:36px 20px;color:var(--muted);border:1px dashed var(--line);border-radius:22px;font-size:15px}
+
+/* Statut en ligne : une seule ligne */
+.cz-status{display:flex;align-items:center;gap:14px;padding:16px 16px 16px 20px;border-radius:22px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
+.cz-status.dispo{box-shadow:inset 0 0 0 1.5px var(--live),var(--shadow)}
+.cz-status.course{box-shadow:inset 0 0 0 1.5px var(--warn),var(--shadow)}
+.cz-status .dot{width:12px;height:12px}
+.cz-status b{display:block;font-size:18px;font-weight:700}
+.cz-status small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.cz-status button{flex:none;min-height:44px;padding:10px 16px;border-radius:12px}
+
+/* Chiffres clés */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpis>div{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px 12px;display:flex;flex-direction:column;gap:4px}
+.kpis.in>div{background:var(--soft);border:0}
+.kpis b{font-family:var(--display);font-weight:600;font-size:26px;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpis span{font-size:12px;color:var(--muted)}
+
+/* Choix À venir / À accepter / Historique */
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--soft);border-radius:14px;padding:4px;gap:4px}
+.seg button{background:transparent;border:0;color:var(--muted);min-height:40px;padding:8px 6px;border-radius:10px;font-size:14px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--btn);color:var(--btn-ink)}
+
+/* Carte d'une course */
+.cz-ride{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:16px;box-shadow:var(--shadow)}
+.cz-ride.new{box-shadow:inset 0 0 0 2px var(--gold-bright),var(--shadow)}
+.cz-ride.past{opacity:.78}
+.cz-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.cz-time{font-family:var(--display);font-weight:600;font-size:34px;line-height:1;font-variant-numeric:tabular-nums}
+.cz-date{color:var(--muted);font-size:14px;margin-top:6px;display:flex;align-items:center;gap:6px}
+.cz-r{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.cz-price{font-family:var(--display);font-weight:600;font-size:28px;line-height:1;white-space:nowrap;color:var(--gold);font-variant-numeric:tabular-nums}
+.cz-offer{font-size:14px;color:var(--muted);margin:-6px 0 0}
+.cz-offer.me{color:var(--gold-bright);font-weight:600}
+.cz-ride .route{gap:6px 12px;font-size:15px}
+.cz-client{display:flex;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)}
+.cz-client b,.cz-row b{display:block;font-size:16px;font-weight:600}
+.cz-client small,.cz-row small{display:block;color:var(--muted);font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis}
+.cz-note{font-size:14px;background:var(--gold-soft);border-radius:12px;padding:10px 12px}
+.cz-main{display:flex;gap:10px}
+.cz-main>button{flex:1;min-height:52px;border-radius:14px;font-size:16px}
+.cz-fix{background:var(--soft);border-radius:16px;padding:14px}
+
+/* Bouton rond (appeler, Waze) */
+.cz-ibtn{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--soft);color:var(--ink);border:1px solid var(--line);text-decoration:none}
+.cz-ibtn svg{width:20px;height:20px}
+.cz-main .cz-ibtn{width:52px;height:52px;border-radius:14px;background:#33ccff;color:#05202b;border-color:#33ccff}
+
+/* Sections repliables */
+details.fold{border-radius:18px;background:var(--card);border:1px solid var(--line)}
+details.fold>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;font-weight:600;font-size:16px;min-height:56px}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary small{margin-left:auto;color:var(--muted);font-weight:400;font-size:14px}
+details.fold>summary::after{content:"";width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translateY(-3px);transition:transform .2s;flex:none}
+details.fold[open]>summary::after{transform:rotate(-135deg) translateY(-2px)}
+details.fold>.fold-b{padding:2px 18px 18px;display:flex;flex-direction:column;gap:14px}
+/* « Plus » en bas d'une course : discret */
+details.cz-more{background:none;border:0;border-top:1px solid var(--line);border-radius:0;margin:-4px -20px -20px;padding:0 4px}
+details.cz-more>summary{min-height:48px;padding:12px 16px;font-size:14px;color:var(--muted);font-weight:500}
+details.cz-more>.fold-b{padding:0 16px 18px}
+.cz-links{display:flex;flex-wrap:wrap;gap:8px}
+.cz-links a{font-size:14px;font-weight:600;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 14px}
+/* Sous-sections dans un formulaire */
+details.fold.inner{background:var(--soft);border:0}
+details.fold.inner>summary{font-size:14px;min-height:48px;padding:12px 14px;color:var(--muted)}
+details.fold.inner>.fold-b{padding:2px 14px 14px}
+
+/* Listes groupées (Réglages, Tarifs) */
+.cz-group{display:flex;flex-direction:column;border-radius:22px;overflow:hidden;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow)}
+.cz-group>details.fold{border:0;border-radius:0;background:none}
+.cz-group>*+*{border-top:1px solid var(--line)!important}
+.cz-item{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;column-gap:12px;text-align:left;width:100%;background:none;border:0;border-radius:0;color:var(--ink);padding:16px 18px;min-height:60px;font-weight:600;font-size:16px}
+.cz-item>span{grid-column:1}
+.cz-item>small{grid-column:1;color:var(--muted);font-weight:400;font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cz-item>svg{grid-column:2;grid-row:1/3;width:18px;height:18px;color:var(--muted)}
+.cz-item>button{grid-column:2;grid-row:1/3}
+.cz-item:active{background:var(--soft);transform:none}
+.cz-back{display:inline-flex;align-items:center;gap:4px;background:none;border:0;color:var(--gold);padding:6px 0;min-height:0;font-weight:600;align-self:flex-start}
+.cz-back svg{width:20px;height:20px}
+.cz-examples{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.cz-examples span{background:var(--soft);border-radius:12px;padding:10px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.cz-examples b{color:var(--ink);font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cz-sub{background:var(--soft);border-radius:16px;padding:14px}
+.cz-sub details.fold.inner{background:var(--card)}
+
+/* Lignes (clients, équipe) */
+.cz-list{display:flex;flex-direction:column;border-radius:22px;overflow:hidden;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow)}
+.cz-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 16px}
+.cz-list>.cz-row+.cz-row,.cz-list>*+*{border-top:1px solid var(--line)}
+.cz-row.flat{padding:0;flex-wrap:nowrap}
+.cz-av{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--gold-soft);color:var(--gold);font-weight:700;font-size:17px}
+.cz-av.big{width:56px;height:56px;font-size:22px}
+.cz-me{padding:4px 2px}
+details.cz-dots{background:none;border:0;border-radius:0}
+details.cz-dots>summary{min-height:44px;width:44px;padding:0;justify-content:center;color:var(--muted);letter-spacing:.1em}
+details.cz-dots>summary::after{display:none}
+details.cz-dots[open]{flex-basis:100%;order:5}
+details.cz-dots[open]>summary{margin-left:auto}
+details.cz-dots>.fold-b{padding:0 0 4px}
+.cz-search{border-radius:14px}
+.cz-due{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--gold-soft);border-radius:14px;padding:10px 10px 10px 14px;font-size:15px}
+.cz-card>details.fold{background:var(--soft);border:0}
+
+@media (max-width:380px){.kpis b{font-size:22px}.cz-time{font-size:30px}.cz-examples{grid-template-columns:repeat(2,1fr)}}

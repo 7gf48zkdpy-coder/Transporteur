@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chauffeur.css">
 </head>
 <body>
 <div class="band"><div class="in" id="band"></div></div>
@@ -238,16 +239,21 @@ function render() {
   ensureMap();
   $("#who").textContent = S.row.prenom ? S.row.prenom : "";
   const pending = S.bookings.filter(offerForMe).length, demandes = isAdmin() ? S.team.filter(x => x.demande).length : 0;
-  const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users], ["tarifs", "Tarifs", IC.tag]] : []), ["reglages", "Réglages", IC.sliders]];
-  if (!tabs.some(t => t[0] === S.tab)) S.tab = "resa";
-  const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav");
+  // 4 onglets pour le compte principal (les tarifs sont dans Réglages), 2 pour un chauffeur
+  const tabs = [["resa", "Courses", IC.car], ...(isAdmin() ? [["equipe", "Équipe", IC.team], ["clients", "Clients", IC.users]] : []), ["reglages", "Réglages", IC.sliders]];
+  if (!(tabs.some(t => t[0] === S.tab) || (S.tab === "tarifs" && isAdmin()))) S.tab = "resa";
+  const navTab = S.tab === "tarifs" ? "reglages" : S.tab;
+  const nav = $("#bnav"); nav.hidden = false; document.body.classList.add("has-nav", "cz");
   nav.innerHTML = `<div class="in" role="tablist">${tabs.map(([k, l, ic]) =>
-    `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : k === "equipe" && demandes ? `<span class="badge">${demandes}</span>` : ""}</button>`).join("")}</div>`;
-  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = S.cedit = S.fix = null; S.td = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); if (S.tab === "tarifs") loadHist(); render(); window.scrollTo(0, 0); });
+    `<button role="tab" data-tab="${k}" aria-selected="${navTab === k}">${ic}${l}${k === "resa" && pending ? `<span class="badge">${pending}</span>` : k === "equipe" && demandes ? `<span class="badge">${demandes}</span>` : ""}</button>`).join("")}</div>`;
+  nav.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.edit = S.pw = S.cedit = S.fix = null; S.td = null; S.add = false; S.teamMsg = ""; if (S.tab === "equipe") loadTeamList(); render(); window.scrollTo(0, 0); });
   const act = S.tab === "resa" ? activeRide() : null;
+  // La carte n'est utile que sur l'onglet Courses
+  const showMap = S.tab === "resa", hadMap = !document.body.classList.contains("nomap");
+  document.body.classList.toggle("nomap", !showMap);
   const box = $("#mapbox"), wasBig = box.classList.contains("big");
   box.classList.toggle("big", !!act);
-  if (map && wasBig !== !!act) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
+  if (map && (wasBig !== !!act || (showMap && !hadMap))) setTimeout(() => { map.resize(); if (act && S.me) map.easeTo({ center: [S.me.lng, S.me.lat], zoom: 15.5 }); else syncMap(true); }, 50);
   app.innerHTML = devBar() + (act ? activeView(act) : S.tab === "resa" ? coursesView() : S.tab === "equipe" ? equipeView() : S.tab === "clients" ? clientsView() : S.tab === "tarifs" ? tarifsView() : reglagesView());
   bind();
   if (act) {
@@ -255,6 +261,15 @@ function render() {
     clearInterval(waitTimer); if (act.phase === "arrive") { tickWait(); waitTimer = setInterval(tickWait, 1000); }
   } else { clearInterval(waitTimer); if (navState.key) { navState.key = ""; navState.data = null; if (map) setRouteLine(map, null); } }
 }
+// Sections repliables : on garde en mémoire celles qui sont ouvertes (l'écran se redessine souvent)
+const OPEN = new Set();
+const det = (k, title, body, o = {}) => `<details class="fold ${o.cls || ""}" data-k="${k}" ${OPEN.has(k) || o.open ? "open" : ""}><summary>${title}</summary><div class="fold-b">${body}</div></details>`;
+const ICO = {
+  phone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>`,
+  nav: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>`,
+  chev: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
+  back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>`
+};
 
 // Barre du mode développeur (compte principal uniquement) : changer de point de vue pour tester
 function devBar() {
@@ -322,26 +337,29 @@ function coursesView() {
   const visible = isAdmin() ? all : all.filter(b => mine(b) || offerForMe(b));
   let list = visible;
   if (S.filter === "attente") list = visible.filter(b => b.statut === "en_attente");
-  else if (S.filter === "avenir") list = visible.filter(b => b.statut === "en_attente" || b.statut === "confirmee");
-  else if (S.filter === "miennes") list = visible.filter(mine);
-  list = [...list].sort((a, b) => S.filter === "toutes" || S.filter === "miennes" ? (b.createdAtMs || 0) - (a.createdAtMs || 0) : (a.date + a.time).localeCompare(b.date + b.time));
-  const st = statsOf(S.uid);
-  const pending = all.filter(offerForMe).length;
-  const filters = [["avenir", "À venir"], ["attente", "À accepter"], ...(isAdmin() ? [["miennes", "Les miennes"]] : []), ["toutes", "Toutes"]];
+  else if (S.filter === "avenir" || S.filter === "miennes") list = visible.filter(b => b.statut === "en_attente" || b.statut === "confirmee");
+  else list = visible.filter(b => b.statut === "terminee" || b.statut === "annulee");
+  const hist = S.filter === "toutes";
+  list = [...list].sort((a, b) => hist ? (b.date + b.time).localeCompare(a.date + a.time) : (a.date + a.time).localeCompare(b.date + b.time));
+  const st = statsOf(S.uid), pending = all.filter(offerForMe).length;
+  const filters = [["avenir", "À venir"], ["attente", "À accepter" + (pending ? ` · ${pending}` : "")], ["toutes", "Historique"]];
+  const label = d.status === "dispo" ? "En ligne" : d.status === "course" ? "En course" : "Hors ligne";
+  const sub = d.status === "off" ? "Pas de course immédiate" : d.at ? "GPS " + ago(d.at) : "Recherche du GPS…";
   return `
-  <section class="panel online ${d.status}">
-    <div style="display:flex;align-items:center;gap:12px"><span class="dot d-${d.status}" style="width:14px;height:14px"></span>
-      <div><p class="state">${d.status === "dispo" ? "En ligne" : d.status === "course" ? "En course" : "Hors ligne"}</p>
-      <p class="muted small">${d.status === "dispo" ? "Les clients vous voient sur la carte. Les courses les plus proches vous sont proposées." : d.status === "course" ? "Course en cours. Les nouvelles demandes vont aux autres chauffeurs." : "Vous ne recevez pas de course immédiate."}</p></div></div>
-    ${d.status === "course" ? `<button class="big ghost" data-status="dispo">Je suis libre</button>` : `<button class="big ${on ? "ghost" : "go"}" data-status="${on ? "off" : "dispo"}">${on ? "Passer hors ligne" : "Passer en ligne"}</button>`}
-    ${on ? `<p class="muted small">Position GPS ${d.at ? "envoyée " + ago(d.at) : "en attente…"}. Gardez cette page ouverte pendant votre service.</p>` : ""}
+  <section class="cz-status ${d.status}">
+    <span class="dot d-${d.status}"></span>
+    <div class="grow"><b>${label}</b><small>${sub}</small></div>
+    ${d.status === "course" ? `<button class="sm" data-status="dispo">Je suis libre</button>` : `<button class="sm ${on ? "ghost" : "go"}" data-status="${on ? "off" : "dispo"}">${on ? "Passer hors ligne" : "Passer en ligne"}</button>`}
   </section>
-  ${!S.row.modele || !S.row.plaque ? `<div class="msg warn">Ajoutez votre <b>modèle de voiture</b> et votre <b>plaque</b> dans Réglages : vos clients les verront.</div>` : ""}
-  ${isAdmin() ? (S.team.some(d => !d.is_admin) ? gainsCard() : "") : partCard()}
-  <div class="stats"><div class="stat"><div class="v">${pending}</div><div class="k">à accepter</div></div><div class="stat"><div class="v">${st.today.length}</div><div class="k">faite${st.today.length > 1 ? "s" : ""} aujourd'hui</div></div><div class="stat"><div class="v" style="font-size:20px">${eur(sum(st.today))}</div><div class="k">gagné aujourd'hui</div></div></div>
-  <p class="muted small center">Ce mois-ci : <b>${st.month.length}</b> course${st.month.length > 1 ? "s" : ""} · <b>${eur(sum(st.month))}</b> · Total : ${st.done.length} course${st.done.length > 1 ? "s" : ""} · ${eur(sum(st.done))}</p>
-  <div class="filters">${filters.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join("")}</div>
-  ${list.length ? list.map(rideCard).join("") : `<div class="empty">Aucune course ici. Les demandes arrivent ici dès qu'un client réserve.</div>`}`;
+  ${!S.row.modele || !S.row.plaque ? `<div class="msg warn small">Ajoutez votre voiture et votre plaque dans <b>Réglages</b> : vos clients les voient.</div>` : ""}
+  ${isAdmin() ? "" : partCard()}
+  <div class="kpis">
+    <div><b>${pending}</b><span>à accepter</span></div>
+    <div><b>${st.today.length}</b><span>aujourd'hui</span></div>
+    <div><b>${eur(sum(st.today)).replace(",00", "")}</b><span>gagné aujourd'hui</span></div>
+  </div>
+  <div class="seg" role="tablist">${filters.map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k || (k === "avenir" && S.filter === "miennes")}">${l}</button>`).join("")}</div>
+  ${list.length ? list.map(rideCard).join("") : `<div class="cz-empty">${hist ? "Aucune course terminée pour l'instant." : S.filter === "attente" ? "Aucune course à accepter." : "Aucune course prévue. Les réservations arrivent ici."}</div>`}`;
 }
 // Ce que le compte principal gagne sur ses chauffeurs (sa part sur leurs courses)
 function gainsEquipe() {
@@ -358,9 +376,8 @@ function gainsEquipe() {
 }
 function gainsCard() {
   const g = gainsEquipe();
-  return `<section class="panel stack"><div class="between"><h3>Mes gains sur l'équipe</h3><span class="small muted">${pctOf()} % par course</span></div>
-    <div class="stats"><div class="stat"><div class="v" style="font-size:24px">${eur(g.recu)}</div><div class="k">reçu</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.reste)}</div><div class="k">à recevoir</div></div><div class="stat"><div class="v" style="font-size:24px">${eur(g.total)}</div><div class="k">total gagné</div></div></div>
-    <p class="muted small">Ce mois-ci : <b>${eur(g.mois)}</b> pour toi, sur <b>${eur(g.ca)}</b> de courses faites par tes chauffeurs · Mois dernier : ${eur(g.moisAvant)}</p></section>`;
+  return `<section class="cz-card"><div class="between"><span class="cz-k">Mes gains sur l'équipe</span><span class="small muted">${pctOf()} % par course</span></div>
+    <div class="kpis in"><div><b>${eur(g.recu).replace(",00", "")}</b><span>reçu</span></div><div><b>${eur(g.reste).replace(",00", "")}</b><span>à recevoir</span></div><div><b>${eur(g.mois).replace(",00", "")}</b><span>ce mois-ci</span></div></div></section>`;
 }
 function partCard() {
   const p = partOf(S.uid); if (!p.du && !p.reste) return "";
@@ -370,48 +387,57 @@ function partCard() {
 }
 function offerLine(b) {
   if (b.statut !== "en_attente") return "";
-  const asked = b.requestedDriver ? (b.requestedDriver === S.uid ? "Le client vous a demandé. " : `Le client a demandé ${esc(nameOf(b.requestedDriver))}. `) : "";
-  if (b.offeredTo === S.uid) return `<div class="msg gold"><b>Course proposée à vous.</b> ${asked}Répondez dans la minute, sinon elle passe au chauffeur suivant.</div>`;
-  if (!b.offeredTo) return `<div class="msg ok"><b>Ouverte à tous les chauffeurs.</b> ${asked}Le premier qui accepte la prend.</div>`;
-  return `<div class="msg">Proposée à <b>${esc(nameOf(b.offeredTo))}</b>. ${asked}</div>`;
+  const asked = b.requestedDriver ? (b.requestedDriver === S.uid ? " · le client vous a demandé" : ` · le client a demandé ${esc(nameOf(b.requestedDriver))}`) : "";
+  if (b.offeredTo === S.uid) return `<p class="cz-offer me">Proposée à vous, répondez vite${asked}</p>`;
+  if (!b.offeredTo) return `<p class="cz-offer">Ouverte à tous les chauffeurs${asked}</p>`;
+  return `<p class="cz-offer">Proposée à ${esc(nameOf(b.offeredTo))}${asked}</p>`;
 }
 function rideCard(b) {
   const live = b.statut === "en_attente" || b.statut === "confirmee";
   const tel = String(b.clientTel || "").replace(/\s/g, "");
   const other = b.driverId && !mine(b);
-  return `<article class="ride ${offerForMe(b) ? "new" : ""}">
-    <div class="between"><span class="when">${b.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(b.date)} · ${esc(b.time)}</span><span class="pill s-${b.statut}">${STATUS[b.statut] || b.statut}</span></div>
-    ${other ? `<p class="small"><b>Chauffeur :</b> ${esc(nameOf(b.driverId))}${b.chauffeur ? " · " + esc(carLabel(b.chauffeur)) : ""}</p>` : ""}
+  const info = [b.categorieNom, b.passagers + " pers.", b.bagages ? b.bagages + " bag." : "", b.paiement === "cb" ? "Carte" : "Espèces", b.km ? b.km + " km" : "",
+    b.forfait ? "Forfait " + b.forfait.label : ""].filter(Boolean).map(esc).join(" · ");
+  const notes = [optsText(b) ? "À prévoir : " + optsText(b) : "", b.devisDemande ? "Le client veut être rappelé pour un devis" : ""].filter(Boolean);
+  // Boutons principaux : une ou deux actions, pas plus
+  const main = [];
+  if (b.statut === "en_attente" && (offerForMe(b) || isAdmin())) main.push(`<button class="${offerForMe(b) ? "go" : ""}" data-accept="${b.id}">${offerForMe(b) ? "Accepter" : "Prendre la course"}</button>`);
+  if (b.statut === "en_attente" && b.offeredTo === S.uid) main.push(`<button class="ghost" data-refuse="${b.id}">Refuser</button>`);
+  if (b.statut === "confirmee" && mine(b)) main.push(`<button class="go" data-start="${b.id}">Démarrer la course</button>`, `<a class="cz-ibtn" href="${wazeTo(b.depart)}" target="_blank" rel="noopener" aria-label="Waze vers le client">${ICO.nav}</a>`);
+  // Le reste va dans « Plus »
+  const more = [];
+  if (live && !other) more.push(`<div class="cz-links"><a href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a>${b.depart?.lat && b.arrivee?.lat ? `<a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a>` : ""}</div>`);
+  if (b.tarif?.lignes?.length) more.push(`<div class="lines">${b.tarif.lignes.map(l => `<div class="l"><span>${esc(l.label)}</span><span>${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</span></div>`).join("")}<div class="l tot"><span>Total</span><span>${eur(b.prix)}</span></div></div>`);
+  const act2 = [];
+  if (b.statut === "confirmee" && (mine(b) || isAdmin()) || b.statut === "en_attente" && isAdmin()) act2.push(`<button class="danger sm" data-st="${b.id}|annulee">Annuler la course</button>`);
+  if (b.statut === "annulee" && isAdmin()) act2.push(`<button class="ghost sm" data-repend="${b.id}">Remettre en attente</button>`);
+  if (isAdmin()) act2.push(`<button class="ghost sm" data-fix="${b.id}">Corriger km / prix</button>`, `<button class="danger sm" data-del="${b.id}">Supprimer</button>`);
+  if (act2.length) more.push(`<div class="actions">${act2.join("")}</div>`);
+  more.push(`<p class="muted small mono">Réf. ${esc(b.ref)}</p>`);
+  return `<article class="cz-ride ${offerForMe(b) ? "new" : ""} ${live ? "" : "past"}">
+    <div class="cz-top">
+      <div><div class="cz-time">${esc(b.time)}</div><div class="cz-date">${b.mode === "immediat" ? `<span class="pill s-now">Immédiat</span> ` : ""}${fmtDate(b.date)}</div></div>
+      <div class="cz-r">${b.prix ? `<div class="cz-price">${eur(b.prix)}</div>` : ""}<span class="pill s-${b.statut}">${STATUS[b.statut] || b.statut}</span></div>
+    </div>
     ${offerLine(b)}
-    <div class="client"><div><div class="nm">${esc(b.clientPrenom)} ${esc(b.clientNom)}</div><div class="mono small">${esc(b.clientTel)}</div></div>
-      <div class="actions" style="flex:none"><a class="navbtn" href="tel:${esc(tel)}">Appeler</a><button class="ghost sm" data-copy="${esc(b.clientTel)}">Copier</button></div></div>
     <div class="route"><span class="pin"></span><span>${esc(b.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(b.arrivee?.label)}</span></div>
-    <div class="between"><div class="facts">${b.categorieNom ? `<span class="fact"><b>${esc(b.categorieNom)}</b></span>` : ""}<span class="fact"><b>${b.passagers}</b> pers.</span><span class="fact"><b>${b.bagages}</b> bag.</span><span class="fact">${b.paiement === "cb" ? "Carte" : "Espèces"}</span>${b.km ? `<span class="fact">${b.km} km</span>` : ""}${b.forfait ? `<span class="fact">Forfait ${esc(b.forfait.label)}</span>` : b.horsZone ? `<span class="fact">approche ${b.approcheMin} min incluse</span>` : b.approcheMin ? `<span class="fact">à ${b.approcheMin} min</span>` : ""}</div>${b.prix ? `<span class="price">${eur(b.prix)}</span>` : ""}</div>
-    ${optsLine(b)}
-    ${b.devisDemande ? `<div class="msg gold">Le client souhaite être rappelé pour un <b>devis personnalisé</b>.</div>` : ""}
-    ${b.tarif?.lignes?.length ? `<details class="inline"><summary>Détail du prix</summary><div class="lines" style="margin-top:6px">${b.tarif.lignes.map(l => `<div class="l"><span>${esc(l.label)}</span><span>${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</span></div>`).join("")}<div class="l tot"><span>Total</span><span>${eur(b.prix)}</span></div></div></details>` : ""}
+    <div class="cz-client"><div class="grow"><b>${esc(b.clientPrenom)} ${esc(b.clientNom)}</b><small>${info}</small></div>${tel ? `<a class="cz-ibtn" href="tel:${esc(tel)}" aria-label="Appeler ${esc(b.clientPrenom)}">${ICO.phone}</a>` : ""}</div>
+    ${other ? `<p class="small muted">Chauffeur : <b style="color:var(--ink)">${esc(nameOf(b.driverId))}</b></p>` : ""}
+    ${notes.map(n => `<p class="cz-note">${esc(n)}</p>`).join("")}
     ${b.note ? `<p class="small muted">« ${esc(b.note)} »</p>` : ""}
-    ${isAdmin() && S.fix === b.id ? `<form class="stack" data-fix-form="${b.id}" novalidate><p class="small muted">Correction réservée au compte principal (les chauffeurs ne peuvent pas modifier le kilométrage ni le prix).</p>
+    ${isAdmin() && S.fix === b.id ? `<form class="stack cz-fix" data-fix-form="${b.id}" novalidate>
       <div class="row"><label class="f" for="fix-km">Kilomètres<input id="fix-km" class="mono" type="number" inputmode="decimal" step="0.1" min="0" value="${b.km ?? ""}"></label><label class="f" for="fix-prix">Prix (€)<input id="fix-prix" class="mono" type="number" inputmode="decimal" step="0.5" min="0" value="${b.prix ?? ""}"></label></div>
       <div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-fix-close>Fermer</button></div></form>` : ""}
-    ${live && !other ? `<div class="actions"><a class="navbtn waze" href="${wazeTo(b.depart)}" target="_blank" rel="noopener">Waze vers le client</a><a class="navbtn" href="${wazeTo(b.arrivee)}" target="_blank" rel="noopener">Waze destination</a></div>
-      ${b.depart?.lat && b.arrivee?.lat ? `<div class="navlinks"><a href="${appleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Plans</a><a href="${googleTo(b.depart, b.arrivee)}" target="_blank" rel="noopener">Google Maps</a></div>` : ""}` : ""}
-    <div class="actions">
-      ${b.statut === "en_attente" && (offerForMe(b) || isAdmin()) ? `<button data-accept="${b.id}">${offerForMe(b) ? "Accepter" : "Prendre la course"}</button>` : ""}
-      ${b.statut === "en_attente" && b.offeredTo === S.uid ? `<button class="ghost" data-refuse="${b.id}">Refuser</button>` : ""}
-      ${b.statut === "en_attente" && isAdmin() ? `<button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
-      ${b.statut === "confirmee" && mine(b) ? `<button class="go" data-start="${b.id}">Démarrer la course</button>` : ""}
-      ${b.statut === "confirmee" && (mine(b) || isAdmin()) ? `<button class="danger" data-st="${b.id}|annulee">Annuler</button>` : ""}
-      ${b.statut === "annulee" && isAdmin() ? `<button class="link" data-repend="${b.id}">Remettre en attente</button>` : ""}
-    </div>
-    <div class="between"><p class="muted small mono">Réf. ${esc(b.ref)}</p>${isAdmin() ? `<span><button class="link" data-fix="${b.id}">Corriger km / prix</button> · <button class="link" data-del="${b.id}" style="color:var(--bad)">Supprimer</button></span>` : ""}</div></article>`;
+    ${main.length ? `<div class="cz-main">${main.join("")}</div>` : ""}
+    ${det("r-" + b.id, "Plus", more.join(""), { cls: "cz-more" })}
+  </article>`;
 }
-function optsLine(b) {
+function optsText(b) {
   const o = b.options || {}, t = [];
   if (o.siegeEnfant) t.push(o.siegeEnfant + " siège" + (o.siegeEnfant > 1 ? "s" : "") + " enfant");
   if (o.arrets) t.push(o.arrets + " arrêt" + (o.arrets > 1 ? "s" : "") + " en route");
   if (o.dispoHeures) t.push("mise à disposition " + o.dispoHeures + " h");
-  return t.length ? `<div class="msg gold small">À prévoir : <b>${esc(t.join(", "))}</b></div>` : "";
+  return t.join(", ");
 }
 // Base clients (compte principal) : recherche, fiche, modification, suppression
 function clientsView() {
@@ -420,21 +446,21 @@ function clientsView() {
   const card = c => {
     const x = st[c.id] || { n: 0, ca: 0, last: "" }, tel = String(c.tel || "").replace(/\s/g, "");
     const find = (c.prenom + " " + c.nom + " " + c.tel).toLowerCase();
-    if (S.cedit === c.id) return `<form class="ride stack" data-cform="${c.id}" novalidate>
+    if (S.cedit === c.id) return `<form class="cz-card stack" data-cform="${c.id}" novalidate>
       <div class="row"><label class="f" for="c-prenom">Prénom<input id="c-prenom" value="${esc(c.prenom)}"></label><label class="f" for="c-nom">Nom<input id="c-nom" value="${esc(c.nom)}"></label></div>
       <label class="f" for="c-tel">Téléphone<input id="c-tel" type="tel" value="${esc(c.tel)}"></label>
       <div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-cclose>Fermer</button></div></form>`;
-    return `<article class="ride" data-find="${esc(find)}">
-      <div class="between"><div><div class="nm" style="font-weight:700;font-size:17px">${esc(c.prenom)} ${esc(c.nom)}</div><div class="mono small">${esc(c.tel)}</div></div>
-        <a class="navbtn" href="tel:${esc(tel)}" style="flex:none">Appeler</a></div>
-      <div class="facts"><span class="fact"><b>${x.n}</b> course${x.n > 1 ? "s" : ""}</span><span class="fact"><b>${eur(x.ca)}</b> dépensés</span>${x.last ? `<span class="fact">dernière : ${fmtDate(x.last)}</span>` : ""}</div>
-      <div class="actions"><button class="ghost sm" data-cedit="${c.id}">Modifier</button><button class="ghost sm" data-copy="${esc(c.tel)}">Copier le numéro</button><button class="danger sm" data-cdel="${c.id}">Supprimer</button></div></article>`;
+    return `<article class="cz-row" data-find="${esc(find)}">
+      <div class="cz-av">${esc((c.prenom || "?")[0].toUpperCase())}</div>
+      <div class="grow"><b>${esc(c.prenom)} ${esc(c.nom)}</b><small>${x.n} course${x.n > 1 ? "s" : ""}${x.ca ? " · " + eur(x.ca).replace(",00", "") : ""}${x.last ? " · " + fmtDate(x.last) : ""}</small></div>
+      ${tel ? `<a class="cz-ibtn" href="tel:${esc(tel)}" aria-label="Appeler ${esc(c.prenom)}">${ICO.phone}</a>` : ""}
+      ${det("c-" + c.id, "•••", `<p class="mono small">${esc(c.tel)}</p><div class="actions"><button class="ghost sm" data-cedit="${c.id}">Modifier</button><button class="ghost sm" data-copy="${esc(c.tel)}">Copier le numéro</button><button class="danger sm" data-cdel="${c.id}">Supprimer</button></div>`, { cls: "cz-dots" })}
+    </article>`;
   };
-  return `<h2>Mes clients</h2>
-  <p class="muted small">${cl.length} client${cl.length > 1 ? "s" : ""}. Supprimer un client efface sa fiche ; ses courses restent dans ton historique et tes gains.</p>
-  ${S.teamMsg ? `<div class="msg ok" role="status">${esc(S.teamMsg)}</div>` : ""}
-  ${cl.length ? `<input id="c-search" type="search" placeholder="Rechercher un nom ou un numéro" autocomplete="off" value="${esc(S.csearch || "")}">` : ""}
-  ${cl.length ? cl.map(card).join("") : `<div class="empty">Aucun client pour l'instant.</div>`}`;
+  return `<div class="cz-head"><h2>Clients</h2><span class="muted">${cl.length}</span></div>
+  ${S.teamMsg ? `<div class="msg ok small" role="status">${esc(S.teamMsg)}</div>` : ""}
+  ${cl.length ? `<input id="c-search" class="cz-search" type="search" placeholder="Rechercher un nom ou un numéro" autocomplete="off" value="${esc(S.csearch || "")}">` : ""}
+  ${cl.length ? `<div class="cz-list">${cl.map(card).join("")}</div>` : `<div class="cz-empty">Aucun client pour l'instant.</div>`}`;
 }
 function filterClients() {
   const q = (S.csearch || "").trim().toLowerCase();
@@ -457,85 +483,96 @@ const readProfile = p => ({ prenom: $(`#${p}-prenom`).value.trim(), nom: $(`#${p
   modele: $(`#${p}-modele`).value.trim(), plaque: $(`#${p}-plaque`).value.trim().toUpperCase(), revtag: $(`#${p}-revtag`).value.trim().replace(/^@/, "") });
 function equipeView() {
   const list = S.teamList;
-  if (!list) return `<h2>Mon équipe</h2><div class="loading">Chargement…</div>`;
+  if (!list) return `<div class="cz-head"><h2>Équipe</h2></div><div class="loading">Chargement…</div>`;
   const demandes = list.filter(d => d.demande), membres = list.filter(d => !d.demande);
   const others = membres.filter(d => !d.is_admin && d.actif), live = id => S.team.find(x => x.id === id) || {};
   const MAX_EQUIPE = maxEq();
   const card = d => {
     const L = { ...d, ...live(d.id) }, st = statsOf(d.id), on = d.actif && fresh(L);
     const [cls, txt] = !d.actif ? ["off", "Désactivé"] : on && L.status === "dispo" ? ["dispo", "En ligne"] : on && L.status === "course" ? ["course", "En course"] : ["off", "Hors ligne"];
-    return `<article class="ride" style="${d.actif ? "" : "opacity:.6"}">
-      <div class="between"><div><div class="nm" style="font-weight:700;font-size:17px">${esc(L.prenom)} ${esc(L.nom)}</div>
-        <div class="small">${esc(carLabel(L)) || `<span class="muted">Véhicule non renseigné</span>`}</div></div>
-        <span class="pill s-${cls === "dispo" ? "confirmee" : cls === "course" ? "now" : "annulee"}"><span class="dot d-${cls}"></span>${txt}</span></div>
-      ${d.is_admin ? `<p class="small muted">Compte principal (vous)</p>` : ""}
-      ${d.actif ? `<label class="f" for="dcat-${d.id}">Catégorie du véhicule<select id="dcat-${d.id}" data-dcat="${d.id}">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${(L.categorie || "berline") === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
-      <div class="facts"><span class="fact mono">${esc(d.email)}</span>${L.tel ? `<span class="fact mono">${esc(L.tel)}</span>` : ""}${L.revtag ? `<span class="fact mono">@${esc(L.revtag)}</span>` : ""}</div>
-      <div class="facts"><span class="fact">Aujourd'hui <b>${st.today.length}</b> · ${eur(sum(st.today))}</span><span class="fact">Ce mois <b>${st.month.length}</b> · ${eur(sum(st.month))}</span></div>
-      ${d.is_admin ? "" : (() => { const p = partOf(d.id); return `<div class="between" style="background:var(--gold-soft);border-radius:12px;padding:10px 12px"><div class="small">Ta part : <b>${eur(p.du)}</b> · réglé ${eur(p.paye)}<br><b>Reste à recevoir : ${eur(p.reste)}</b></div>${p.reste > 0 ? `<button class="sm" data-regle="${d.id}|${p.du}">Marquer réglé</button>` : ""}</div>`; })()}
-      ${S.edit === d.id ? `<form class="stack" data-edit-form="${d.id}" novalidate>${profileFields("e", L)}<div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
+    const p = d.is_admin ? null : partOf(d.id);
+    const editing = S.edit === d.id || S.pw === d.id;
+    const manage = S.edit === d.id ? `<form class="stack" data-edit-form="${d.id}" novalidate>${profileFields("e", L)}<div class="actions"><button type="submit">Enregistrer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
       : S.pw === d.id ? `<form class="stack" data-pw-form="${d.id}" novalidate><label class="f" for="np">Nouveau mot de passe (8 caractères minimum)<input id="np" type="text" autocomplete="off" autocapitalize="off"></label><div class="actions"><button type="submit">Changer</button><button type="button" class="ghost" data-close>Fermer</button></div></form>`
-      : `<div class="actions"><button class="ghost sm" data-edit="${d.id}">Modifier</button>${d.is_admin ? "" : `<button class="ghost sm" data-pw="${d.id}">Mot de passe</button><button class="${d.actif ? "danger" : ""} sm" data-actif="${d.id}|${d.actif ? "0" : "1"}">${d.actif ? "Désactiver" : "Réactiver"}</button>`}</div>`}
+      : `${d.actif ? `<label class="f" for="dcat-${d.id}">Catégorie du véhicule<select id="dcat-${d.id}" data-dcat="${d.id}">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${(L.categorie || "berline") === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
+        <p class="small muted mono">${[d.email, L.tel, L.revtag ? "@" + L.revtag : ""].filter(Boolean).map(esc).join(" · ")}</p>
+        <div class="actions"><button class="ghost sm" data-edit="${d.id}">Modifier</button>${d.is_admin ? "" : `<button class="ghost sm" data-pw="${d.id}">Mot de passe</button><button class="${d.actif ? "danger" : ""} sm" data-actif="${d.id}|${d.actif ? "0" : "1"}">${d.actif ? "Désactiver" : "Réactiver"}</button>`}</div>`;
+    return `<article class="cz-card" style="${d.actif ? "" : "opacity:.6"}">
+      <div class="cz-row flat"><div class="cz-av">${esc((L.prenom || "?")[0].toUpperCase())}</div>
+        <div class="grow"><b>${esc(L.prenom)} ${esc(L.nom)}${d.is_admin ? ` <span class="muted small">(vous)</span>` : ""}</b><small>${esc(carLabel(L)) || "Véhicule non renseigné"}</small></div>
+        <span class="pill s-${cls === "dispo" ? "confirmee" : cls === "course" ? "en_attente" : "annulee"}"><span class="dot d-${cls}"></span>${txt}</span></div>
+      <p class="small muted">Aujourd'hui <b class="ink">${st.today.length}</b> · ${eur(sum(st.today)).replace(",00", "")} &nbsp;—&nbsp; Ce mois <b class="ink">${st.month.length}</b> · ${eur(sum(st.month)).replace(",00", "")}</p>
+      ${p && p.reste > 0 ? `<div class="cz-due"><span>À recevoir <b>${eur(p.reste)}</b></span><button class="sm" data-regle="${d.id}|${p.du}">Marquer réglé</button></div>` : ""}
+      ${det("drv-" + d.id, "Gérer", manage, { open: editing })}
     </article>`;
   };
   const link = location.origin + location.pathname;
-  return `<h2>Mon équipe</h2>
-  <p class="muted small">Chaque chauffeur se connecte avec son e-mail et son mot de passe sur l'espace chauffeur. Il voit seulement ses courses. Les clients paient sur son propre Revolut.</p>
-  ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé|réactivé|désactivé|refusée/i.test(S.teamMsg) ? "ok" : "err"}" role="status">${esc(S.teamMsg)}</div>` : ""}
-  ${gainsCard()}
-  <form id="eq-form" class="panel stack" novalidate><h3>Réglages de l'équipe</h3>
-    <div class="row"><label class="f" for="eq-max">Nombre maximum de chauffeurs<input id="eq-max" class="mono" type="number" inputmode="numeric" min="1" max="50" value="${MAX_EQUIPE}"></label>
-    <label class="f" for="eq-pct">Ta part sur chaque course (%)<input id="eq-pct" class="mono" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${pctOf()}"></label></div>
-    <p class="muted small">Exemple : course à 40 € → ta part ${eur(40 * pctOf() / 100)}. Le pourcentage s'applique aux courses terminées après le changement.</p>
-    <button class="ghost" type="submit">Enregistrer</button></form>
-  ${demandes.length ? `<h3>Demandes d'inscription (${demandes.length})</h3>${demandes.map(d => `<article class="ride new">
-      <div><div class="nm" style="font-weight:700;font-size:17px">${esc(d.prenom)} ${esc(d.nom)}</div><div class="small">${esc(carLabel(d)) || `<span class="muted">Véhicule non renseigné</span>`}</div></div>
-      <div class="facts"><span class="fact mono">${esc(d.email)}</span>${d.tel ? `<span class="fact mono">${esc(d.tel)}</span>` : ""}${d.revtag ? `<span class="fact mono">@${esc(d.revtag)}</span>` : ""}</div>
-      <div class="actions">${d.tel ? `<a class="navbtn" href="tel:${esc(String(d.tel).replace(/\s/g, ""))}">Appeler</a>` : ""}<button class="go" data-actif="${d.id}|1">Accepter</button><button class="danger" data-refuse-dem="${d.id}">Refuser</button></div></article>`).join("")}` : ""}
+  return `<div class="cz-head"><h2>Équipe</h2><span class="muted">${others.length + 1} / ${MAX_EQUIPE + 1}</span></div>
+  ${S.teamMsg ? `<div class="msg ${/ajouté|enregistré|changé|réactivé|désactivé|refusée|accepté/i.test(S.teamMsg) ? "ok" : "err"} small" role="status">${esc(S.teamMsg)}</div>` : ""}
+  ${others.length ? gainsCard() : ""}
+  ${demandes.length ? `<p class="cz-k">Demandes d'inscription · ${demandes.length}</p>${demandes.map(d => `<article class="cz-card new">
+      <div class="cz-row flat"><div class="cz-av">${esc((d.prenom || "?")[0].toUpperCase())}</div><div class="grow"><b>${esc(d.prenom)} ${esc(d.nom)}</b><small>${esc(carLabel(d)) || "Véhicule non renseigné"}</small></div>
+      ${d.tel ? `<a class="cz-ibtn" href="tel:${esc(String(d.tel).replace(/\s/g, ""))}" aria-label="Appeler">${ICO.phone}</a>` : ""}</div>
+      <p class="small muted mono">${[d.email, d.tel].filter(Boolean).map(esc).join(" · ")}</p>
+      <div class="cz-main"><button class="go" data-actif="${d.id}|1">Accepter</button><button class="ghost" data-refuse-dem="${d.id}">Refuser</button></div></article>`).join("")}` : ""}
+  ${membres.length ? `<p class="cz-k">Chauffeurs</p>` : ""}
   ${membres.map(card).join("")}
-  ${others.length < MAX_EQUIPE ? (S.add ? `<form id="add-form" class="panel stack" novalidate><h3>Nouveau chauffeur</h3>${profileFields("a")}
+  ${others.length < MAX_EQUIPE ? (S.add ? `<form id="add-form" class="cz-card stack" novalidate><p class="cz-k">Nouveau chauffeur</p>${profileFields("a")}
       <label class="f" for="a-email">E-mail de connexion<input id="a-email" type="email" autocomplete="off" autocapitalize="off"></label>
       <label class="f" for="a-pass">Mot de passe (8 caractères minimum)<input id="a-pass" type="text" autocomplete="off" autocapitalize="off"></label>
-      <div class="actions"><button type="submit" class="big">Ajouter le chauffeur</button></div><button type="button" class="ghost" data-close>Annuler</button></form>`
-    : `<button class="big" id="add-open">+ Ajouter un chauffeur (${others.length}/${MAX_EQUIPE})</button>`)
-    : `<p class="muted small center">Équipe complète : ${MAX_EQUIPE} chauffeurs. Augmente le maximum ci-dessus pour en ajouter.</p>`}
-  <div class="panel stack"><h3>Lien à donner à vos chauffeurs</h3><p class="small muted">Ils ouvrent ce lien, appuient sur « Créer mon compte chauffeur », et tu acceptes leur demande ici.</p><p class="mono small" style="word-break:break-all">${esc(link)}</p><div><button class="ghost sm" data-copy="${esc(link)}">Copier le lien</button></div></div>`;
+      <button type="submit" class="big">Ajouter le chauffeur</button><button type="button" class="ghost" data-close>Annuler</button></form>`
+    : `<button class="big ghost" id="add-open">+ Ajouter un chauffeur</button>`)
+    : `<p class="muted small center">Équipe complète (${MAX_EQUIPE} chauffeurs).</p>`}
+  ${det("eq-set", "Paramètres de l'équipe", `<form id="eq-form" class="stack" novalidate>
+    <div class="row"><label class="f" for="eq-max">Chauffeurs maximum<input id="eq-max" class="mono" type="number" inputmode="numeric" min="1" max="50" value="${MAX_EQUIPE}"></label>
+    <label class="f" for="eq-pct">Ta part par course (%)<input id="eq-pct" class="mono" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${pctOf()}"></label></div>
+    <p class="muted small">Course à 40 € → ta part ${eur(40 * pctOf() / 100)}.</p>
+    <button type="submit">Enregistrer</button></form>
+    <div class="cz-sep"></div>
+    <p class="small">Lien d'inscription pour tes chauffeurs</p><p class="mono small muted" style="word-break:break-all">${esc(link)}</p>
+    <div><button class="ghost sm" data-copy="${esc(link)}">Copier le lien</button></div>`)}`;
 }
 
 function reglagesView() {
   const s = { ...DEFAULT_SETTINGS, ...S.settings };
-  const profil = `<form id="me-form" class="panel stack" novalidate><h3>Mon profil et ma voiture</h3>
+  const profil = `<form id="me-form" class="stack" novalidate>
     <p class="muted small">Vos clients voient votre prénom, votre voiture et votre plaque.</p>${profileFields("m", S.row)}
-    <p class="small">Catégorie de votre véhicule : <b>${esc(CATS[S.row.categorie] || "Berline")}</b> <span class="muted">(réglée par le responsable)</span></p>
-    <button class="big" type="submit">Enregistrer</button></form>`;
-  const pw = `<form id="pw-form" class="panel stack"><h3>Mot de passe</h3><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
-  if (!isAdmin()) return `<h2>Réglages</h2>${profil}${pw}<div class="panel"><button class="ghost" id="logout">Se déconnecter</button></div>`;
-  return `<h2>Réglages</h2>
-  <div class="panel stack"><div class="between"><div><h3>Mode développeur</h3><p class="small muted">Pour tester l'appli comme un chauffeur ou comme un client.</p></div>
-    <button class="sm ${devOn() ? "" : "ghost"}" id="dev-toggle">${devOn() ? "Activé" : "Activer"}</button></div></div>
-  ${profil}
-  <div class="panel stack"><h3>Tarifs</h3><p class="small muted">Prix au km, forfaits aéroports, catégories, suppléments et codes promo : tout est dans l'onglet <b>Tarifs</b>.</p><div><button class="ghost sm" data-tab-go="tarifs">Ouvrir les tarifs</button></div></div>
-  <form id="pay-form" class="panel stack"><h3>Virement bancaire</h3>
-    <p class="muted small">Affiché aux clients qui paient par carte quand le chauffeur n'a pas de Revtag.</p>
-    <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
-    <label class="f" for="p-iban">IBAN<input id="p-iban" class="mono" value="${esc(s.iban || "")}"></label>
-    <div class="row"><label class="f" for="p-bic">BIC<input id="p-bic" class="mono" value="${esc(s.bic || "")}"></label><label class="f" for="p-banque">Banque<input id="p-banque" value="${esc(s.banque || "")}"></label></div>
-    <button class="big" type="submit">Enregistrer</button></form>
-  <div class="panel stack"><h3>Liens</h3><p class="small">Lien à donner à vos clients :</p><p class="mono small" style="word-break:break-all">${esc(location.origin + location.pathname.replace(/chauffeur\.html$/, ""))}</p>
-    <div class="actions"><button class="ghost sm" id="copy-link">Copier le lien client</button><button class="ghost sm" id="logout">Se déconnecter</button></div></div>
-  ${pw}`;
+    <p class="small muted">Catégorie : <b class="ink">${esc(CATS[S.row.categorie] || "Berline")}</b> (réglée par le responsable)</p>
+    <button type="submit">Enregistrer</button></form>`;
+  const pw = `<form id="pw-form" class="stack"><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
+  const who = `<div class="cz-row flat cz-me"><div class="cz-av big">${esc((S.row.prenom || "?")[0].toUpperCase())}</div><div class="grow"><b>${esc(S.row.prenom || "")} ${esc(S.row.nom || "")}</b><small>${esc(carLabel(S.row)) || "Voiture non renseignée"}</small></div></div>`;
+  if (!isAdmin()) return `<div class="cz-head"><h2>Réglages</h2></div>${who}
+    <div class="cz-group">${det("set-profil", "Mon profil et ma voiture", profil)}${det("set-pw", "Mot de passe", pw)}</div>
+    <button class="ghost big" id="logout">Se déconnecter</button>`;
+  const lien = location.origin + location.pathname.replace(/chauffeur\.html$/, "");
+  return `<div class="cz-head"><h2>Réglages</h2></div>${who}
+  <div class="cz-group">
+    <button class="cz-item" data-tab-go="tarifs"><span>Tarifs</span><small>Prix, catégories, codes promo, forfaits</small>${ICO.chev}</button>
+    ${det("set-profil", "Mon profil et ma voiture", profil)}
+    ${det("set-pay", "Virement bancaire", `<form id="pay-form" class="stack">
+      <p class="muted small">Affiché aux clients qui paient par carte quand le chauffeur n'a pas de Revtag.</p>
+      <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
+      <label class="f" for="p-iban">IBAN<input id="p-iban" class="mono" value="${esc(s.iban || "")}"></label>
+      <div class="row"><label class="f" for="p-bic">BIC<input id="p-bic" class="mono" value="${esc(s.bic || "")}"></label><label class="f" for="p-banque">Banque<input id="p-banque" value="${esc(s.banque || "")}"></label></div>
+      <button type="submit">Enregistrer</button></form>`)}
+    ${det("set-pw", "Mot de passe", pw)}
+  </div>
+  <div class="cz-group">
+    <button class="cz-item" id="copy-link"><span>Copier le lien client</span><small class="mono">${esc(lien.replace(/^https?:\/\//, ""))}</small>${ICO.chev}</button>
+    <div class="cz-item static"><span>Mode développeur</span><small>Voir l'appli comme un chauffeur ou un client</small><button class="sm ${devOn() ? "" : "ghost"}" id="dev-toggle">${devOn() ? "Activé" : "Activer"}</button></div>
+  </div>
+  <button class="ghost big" id="logout">Se déconnecter</button>`;
 }
 
 // Forfaits aéroports (compte principal) : un prix fixe par département et par aéroport
 function forfaitsForm() {
   const F = S.settings?.forfaits; if (!F?.prix || !F?.aeroports) return "";
-  return `<form id="fx-form" class="panel stack" novalidate><h3>Forfaits aéroports</h3>
-    <p class="muted small">Prix fixe entre un département et un aéroport, dans les deux sens (utilisé quand aucun forfait entre deux lieux ne correspond). Calculés sur la distance réelle depuis la préfecture avec ta formule, arrondis à 5 €. Prix Éco : la catégorie choisie s'applique en plus.</p>
+  return det("t-fx", "Grille aéroports par département", `<form id="fx-form" class="stack" novalidate>
+    <p class="muted small">Prix fixe entre un département et un aéroport, dans les deux sens. 0 = prix au km.</p>
     <div class="tbl"><table><thead><tr><th>Départ.</th>${F.aeroports.map(a => `<th>${esc(a.code)} €</th>`).join("")}</tr></thead><tbody>
     ${F.prix.map((r, i) => `<tr><td>${esc(r.dep)} ${esc(r.nom)}</td>${F.aeroports.map(a => `<td><input class="mini mono" id="fx-${i}-${a.code}" type="number" inputmode="decimal" min="0" value="${Number(r[a.code]) || 0}"></td>`).join("")}</tr>`).join("")}
     </tbody></table></div>
-    <p class="muted small">CDG = Roissy, ORY = Orly, BVA = Beauvais. Mettre 0 pour revenir au prix au km.</p>
-    <button class="big" type="submit">Enregistrer la grille</button></form>`;
+    <button type="submit">Enregistrer la grille</button></form>`);
 }
 /* ---------- tarifs (compte principal) ---------- */
 const TDEF = { min: 9, base: 3, km: 1.5, minute: 0.2, arrondi: 0.5, longueDistanceKm: 100, approche: { payante: true, seuilMin: 15 }, horaires: { avanceMinMinutes: 30, avanceMaxJours: 90 },
@@ -584,54 +621,57 @@ function tarifsView() {
   const nomLieu = id => D.lieux.find(l => l.id === id)?.nom || id;
   const lieuOpts = () => D.lieux.map(l => `<option value="${esc(l.id)}">${esc(l.nom)}</option>`).join("");
   const used = id => D.trajets.some(t => t.a === id || t.b === id);
-  return `<h2>Tarifs</h2>
-  <p class="muted small">Le serveur calcule chaque prix avec ces réglages : ni les clients ni les chauffeurs ne peuvent le changer. Ordre : 1) forfait s'il existe, sinon prix au km et à la minute · 2) × catégorie · 3) suppléments · 4) code promo · 5) arrondi. Une course réservée garde son prix.</p>
-  <form id="tf-base" class="panel stack" novalidate><h3>Prix de base</h3>
+  const nbPromo = D.promos.filter(p => p.actif !== false).length;
+  return `<button class="cz-back" data-tab-go="reglages">${ICO.back}Réglages</button>
+  <div class="cz-head"><h2>Tarifs</h2></div>
+  <p class="muted small">Le serveur calcule chaque prix avec ces réglages. Une course déjà réservée garde son prix.</p>
+  <form id="tf-base" class="cz-card stack" novalidate><p class="cz-k">Prix de base</p>
     <div class="row">${field("tb-base", "Prise en charge (€)", T.base)}${field("tb-min", "Prix minimum (€)", T.min)}</div>
     <div class="row">${field("tb-km", "Prix au km (€)", T.km)}${field("tb-minute", "Prix à la minute (€)", T.minute)}</div>
-    <div class="row">${field("tb-arr", "Arrondi (€)", T.arrondi)}${field("tb-long", "Longue distance (km)", T.longueDistanceKm, "1")}</div>
-    <div class="facts">${[[5, 12], [15, 25], [30, 40], [60, 60]].map(([k, m]) => `<span class="fact">${k} km · ${m} min → <b>${eur(rnd(ex(k, m), T.arrondi))}</b></span>`).join("")}</div>
-    <p class="muted small">Prix = prise en charge + km × prix au km + minutes × prix à la minute, jamais moins que le minimum. Exemples en Éco (×1).</p>
-    <h3>Approche et horaires</h3>
-    ${box("tb-appay", "Faire payer le trajet du chauffeur quand il est loin du client", T.approche?.payante !== false)}
-    <div class="row">${field("tb-apseuil", "Approche offerte (min)", T.approche?.seuilMin ?? 15, "1")}${field("tb-avmin", "Réserver au moins … min avant", T.horaires?.avanceMinMinutes ?? 30, "1")}</div>
-    ${field("tb-avmax", "Réserver au plus … jours avant", T.horaires?.avanceMaxJours ?? 90, "1")}
-    <button class="big" type="submit">Enregistrer</button></form>
-  <form id="tf-cats" class="panel stack" novalidate><h3>Catégories de véhicules</h3>
+    <div class="cz-examples">${[[5, 12], [15, 25], [30, 40], [60, 60]].map(([k, m]) => `<span>${k} km<b>${eur(rnd(ex(k, m), T.arrondi)).replace(",00", "")}</b></span>`).join("")}</div>
+    ${det("tb-adv", "Arrondi, approche et horaires", `<div class="stack">
+      <div class="row">${field("tb-arr", "Arrondi (€)", T.arrondi)}${field("tb-long", "Longue distance (km)", T.longueDistanceKm, "1")}</div>
+      ${box("tb-appay", "Faire payer le trajet du chauffeur quand il est loin du client", T.approche?.payante !== false)}
+      <div class="row">${field("tb-apseuil", "Approche offerte (min)", T.approche?.seuilMin ?? 15, "1")}${field("tb-avmin", "Réserver au moins … min avant", T.horaires?.avanceMinMinutes ?? 30, "1")}</div>
+      ${field("tb-avmax", "Réserver au plus … jours avant", T.horaires?.avanceMaxJours ?? 90, "1")}</div>`, { cls: "inner" })}
+    <button type="submit">Enregistrer</button></form>
+  <div class="cz-group">
+  ${det("t-cats", `Catégories de véhicules<small>${(T.categories || []).filter(c => c.actif !== false).length} proposées</small>`, `<form id="tf-cats" class="stack" novalidate>
     <div class="tbl"><table class="ftbl"><thead><tr><th>Catégorie</th><th>×</th><th>Pers.</th><th>Bag.</th><th>On</th></tr></thead><tbody>
     ${(T.categories || []).map((c, i) => `<tr><td>${esc(c.nom)}</td><td><input class="mini mono" id="tc-coef-${i}" type="number" inputmode="decimal" step="0.05" min="0.1" value="${c.coef}"></td><td><input class="mini mono" id="tc-pax-${i}" type="number" inputmode="numeric" min="1" value="${c.pax}"></td><td><input class="mini mono" id="tc-bag-${i}" type="number" inputmode="numeric" min="0" value="${c.bag}"></td><td><input type="checkbox" id="tc-on-${i}" style="width:auto;min-height:0" ${c.actif !== false ? "checked" : ""} aria-label="${esc(c.nom)} proposée"></td></tr>`).join("")}
     </tbody></table></div>
-    <p class="muted small">× = coefficient du prix (1,10 = 10 % plus cher). Une catégorie n'est jamais proposée si elle n'a pas assez de places. La catégorie de chaque chauffeur se règle dans Équipe.</p>
-    <button class="big" type="submit">Enregistrer</button></form>
-  <form id="tf-sup" class="panel stack" novalidate><h3>Suppléments</h3>
-    <p class="muted small">Toujours choisis par le client et affichés avant la réservation. 0 = pas proposé.</p>
+    <p class="muted small">× = coefficient du prix (1,10 = 10 % plus cher).</p>
+    <button type="submit">Enregistrer</button></form>`)}
+  ${det("t-sup", "Suppléments", `<form id="tf-sup" class="stack" novalidate>
     <div class="row">${field("ts-siege", "Siège enfant (€)", sp.siegeEnfant)}${field("ts-arret", "Arrêt en route (€)", sp.arret)}</div>
     <div class="row">${field("ts-dispo", "Mise à dispo (€/h)", sp.dispoHeure)}${field("ts-prog", "Résa à l'avance (€)", sp.programmee)}</div>
     <div class="row">${field("ts-fr", "Attente offerte (min)", sp.franchiseMin, "1")}${field("ts-att", "Puis attente (€/min)", sp.attenteMin)}</div>
-    <label class="f" for="ts-ann">Conditions d'annulation (montrées au client)<textarea id="ts-ann">${esc(T.annulation || "")}</textarea></label>
-    <button class="big" type="submit">Enregistrer</button></form>
-  <form id="tf-promo" class="panel stack" novalidate><h3>Codes promo</h3>
-    <p class="muted small">Une remise ne fait jamais passer la course sous le prix minimum, sauf si tu coches la case.</p>
-    ${D.promos.length ? D.promos.map((p, i) => `<div class="ride stack" style="gap:8px">
+    <label class="f" for="ts-ann">Conditions d'annulation<textarea id="ts-ann">${esc(T.annulation || "")}</textarea></label>
+    <p class="muted small">0 = pas proposé.</p>
+    <button type="submit">Enregistrer</button></form>`)}
+  ${det("t-promo", `Codes promo<small>${nbPromo ? nbPromo + " actif" + (nbPromo > 1 ? "s" : "") : "aucun"}</small>`, `<form id="tf-promo" class="stack" novalidate>
+    ${D.promos.length ? D.promos.map((p, i) => `<div class="cz-sub stack">
       <div class="row"><label class="f" for="tp-code-${i}">Code<input id="tp-code-${i}" class="mono" autocapitalize="characters" autocomplete="off" value="${esc(p.code || "")}"></label><label class="f" for="tp-label-${i}">Nom affiché<input id="tp-label-${i}" value="${esc(p.label || "")}"></label></div>
       <div class="row"><label class="f" for="tp-type-${i}">Type<select id="tp-type-${i}"><option value="pct" ${p.type !== "fixe" ? "selected" : ""}>En %</option><option value="fixe" ${p.type === "fixe" ? "selected" : ""}>En €</option></select></label>${field("tp-val-" + i, "Valeur", p.valeur)}</div>
-      <div class="row">${field("tp-plaf-" + i, "Remise max (€, 0 = sans)", p.plafond)}${field("tp-minc-" + i, "Course minimum (€)", p.minCourse)}</div>
-      <div class="row">${field("tp-mpc-" + i, "Fois par client (0 = ∞)", p.maxParClient, "1")}${field("tp-mu-" + i, "Utilisations max (0 = ∞)", p.maxUtilisations, "1")}</div>
-      <div class="row"><label class="f" for="tp-deb-${i}">Début<input id="tp-deb-${i}" type="date" value="${esc(p.debut || "")}"></label><label class="f" for="tp-fin-${i}">Fin<input id="tp-fin-${i}" type="date" value="${esc(p.fin || "")}"></label></div>
-      ${box("tp-on-" + i, "<b>Actif</b>", p.actif !== false)}${box("tp-sp-" + i, "Autoriser sous le prix minimum", !!p.sousPlancher)}
+      ${box("tp-on-" + i, "<b>Actif</b>", p.actif !== false)}
+      ${det("tp-adv-" + i, "Limites et dates", `<div class="stack">
+        <div class="row">${field("tp-plaf-" + i, "Remise max (€, 0 = sans)", p.plafond)}${field("tp-minc-" + i, "Course minimum (€)", p.minCourse)}</div>
+        <div class="row">${field("tp-mpc-" + i, "Fois par client (0 = ∞)", p.maxParClient, "1")}${field("tp-mu-" + i, "Utilisations max (0 = ∞)", p.maxUtilisations, "1")}</div>
+        <div class="row"><label class="f" for="tp-deb-${i}">Début<input id="tp-deb-${i}" type="date" value="${esc(p.debut || "")}"></label><label class="f" for="tp-fin-${i}">Fin<input id="tp-fin-${i}" type="date" value="${esc(p.fin || "")}"></label></div>
+        ${box("tp-sp-" + i, "Autoriser sous le prix minimum", !!p.sousPlancher)}</div>`, { cls: "inner" })}
       <div><button type="button" class="link" data-tp-del="${i}" style="color:var(--bad)">Supprimer ce code</button></div></div>`).join("") : `<p class="muted small">Aucun code.</p>`}
     <button type="button" class="ghost" id="tp-add">+ Ajouter un code</button>
-    <button class="big" type="submit">Enregistrer les codes</button></form>
-  <form id="tf-traj" class="panel stack" novalidate><h3>Forfaits entre deux lieux</h3>
-    <p class="muted small">Prix fixe dans les deux sens, prioritaire sur la grille par département. Prix Éco : la catégorie s'applique en plus.</p>
+    <button type="submit">Enregistrer les codes</button></form>`)}
+  ${det("t-traj", `Forfaits entre deux lieux<small>${D.trajets.length}</small>`, `<form id="tf-traj" class="stack" novalidate>
+    <p class="muted small">Prix fixe dans les deux sens (prix Éco, la catégorie s'applique en plus).</p>
     <div class="tbl"><table class="ftbl"><thead><tr><th>Trajet</th><th>Prix €</th><th></th></tr></thead><tbody>
     ${D.trajets.map((t, i) => `<tr><td>${esc(nomLieu(t.a))} ↔ ${esc(nomLieu(t.b))}${t.min ? `<br><small class="muted">fourchette ${t.min}–${t.max} €</small>` : ""}</td><td><input class="mini mono" id="tt-${i}" type="number" inputmode="decimal" min="0" value="${t.prix}"></td><td><button type="button" class="link" data-tt-del="${i}" aria-label="Supprimer ce forfait" style="color:var(--bad)">✕</button></td></tr>`).join("")}
     </tbody></table></div>
     <div class="row"><label class="f" for="tt-a">De<select id="tt-a">${lieuOpts()}</select></label><label class="f" for="tt-b">À<select id="tt-b">${lieuOpts()}</select></label></div>
     <div class="row">${field("tt-prix", "Prix (€)", "")}<div style="align-self:end"><button type="button" class="ghost" id="tt-add">+ Ajouter</button></div></div>
-    <button class="big" type="submit">Enregistrer les forfaits</button></form>
-  <form id="tf-lieux" class="panel stack" novalidate><h3>Lieux des forfaits</h3>
-    <p class="muted small">Un lieu = un point + un rayon. Une adresse à moins de « rayon » km du point compte comme ce lieu. Ajoute par exemple Lille ou Reims pour créer des forfaits longue distance.</p>
+    <button type="submit">Enregistrer les forfaits</button></form>`)}
+  ${det("t-lieux", `Lieux des forfaits<small>${D.lieux.length}</small>`, `<form id="tf-lieux" class="stack" novalidate>
+    <p class="muted small">Un lieu = un point + un rayon en km.</p>
     <div class="tbl"><table class="ftbl"><thead><tr><th>Lieu</th><th>Rayon km</th><th></th></tr></thead><tbody>
     ${D.lieux.map((l, i) => `<tr><td>${esc(l.nom)}</td><td><input class="mini mono" id="tl-r-${i}" type="number" inputmode="decimal" step="0.5" min="0.5" value="${l.rayon}"></td><td>${used(l.id) ? "" : `<button type="button" class="link" data-tl-del="${i}" aria-label="Supprimer ce lieu" style="color:var(--bad)">✕</button>`}</td></tr>`).join("")}
     </tbody></table></div>
@@ -639,9 +679,10 @@ function tarifsView() {
     <div class="ac"><label class="f" for="tl-addr">Adresse du point central<input id="tl-addr" placeholder="Rechercher une adresse" autocomplete="off"></label><div class="sugg" id="tl-sugg" hidden></div></div>
     <p class="small muted" id="tl-picked">${S.tlPick ? "Point choisi : " + esc(S.tlPick.label) : ""}</p>
     <button type="button" class="ghost" id="tl-add">+ Ajouter ce lieu</button>
-    <button class="big" type="submit">Enregistrer les lieux</button></form>
+    <button type="submit">Enregistrer les lieux</button></form>`)}
   ${forfaitsForm()}
-  <section class="panel stack"><h3>Historique des changements</h3><div class="hist" id="hist">${histHtml()}</div></section>`;
+  ${det("t-hist", "Historique des changements", `<div class="hist" id="hist">${histHtml()}</div>`)}
+  </div>`;
 }
 function bindTarifs() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
@@ -701,6 +742,7 @@ function bindTarifs() {
 }
 function bind() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  on("details[data-k]", "toggle", e => { const d = e.currentTarget; d.open ? OPEN.add(d.dataset.k) : OPEN.delete(d.dataset.k); });
   on("[data-status]", "click", e => setStatus(e.currentTarget.dataset.status));
   on("[data-filter]", "click", e => { S.filter = e.currentTarget.dataset.filter; render(); });
   on("[data-copy]", "click", e => copy(e.currentTarget.dataset.copy));
@@ -761,7 +803,7 @@ function bind() {
     S.bookings = S.bookings.filter(x => x.id !== btn.dataset.del); toast("Course supprimée"); render(); syncMap(false);
   });
   // Correction du km / prix d'une course (compte principal uniquement)
-  on("[data-fix]", "click", e => { S.fix = e.currentTarget.dataset.fix; render(); });
+  on("[data-fix]", "click", e => { S.fix = e.currentTarget.dataset.fix; OPEN.delete("r-" + S.fix); render(); $("#fix-km")?.focus(); });
   on("[data-fix-close]", "click", () => { S.fix = null; render(); });
   on("[data-fix-form]", "submit", async e => {
     e.preventDefault(); const id = e.currentTarget.dataset.fixForm, b = S.bookings.find(x => x.id === id); if (!b) return;
@@ -772,7 +814,7 @@ function bind() {
     if (error) return toast("Correction impossible");
     S.fix = null; toast("Course corrigée"); render();
   });
-  on("[data-tab-go]", "click", e => { S.tab = e.currentTarget.dataset.tabGo; S.td = null; loadHist(); render(); window.scrollTo(0, 0); });
+  on("[data-tab-go]", "click", e => { S.tab = e.currentTarget.dataset.tabGo; S.td = null; if (S.tab === "tarifs") loadHist(); render(); window.scrollTo(0, 0); });
   on("[data-dcat]", "change", async e => {
     const id = e.currentTarget.dataset.dcat, categorie = e.currentTarget.value;
     const { error } = await sb.from("drivers").update({ categorie }).eq("id", id);
