@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Transporteur — Espace chauffeur</title>
-<meta name="theme-color" content="#060a13">
+<meta name="theme-color" content="#040814">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Transporteur Pro">
 <link rel="manifest" href="manifest-chauffeur.json">
@@ -18,8 +19,10 @@
 <script type="module" src="driver.js"></script>
 </head>
 <body>
+<div id="splash"><img src="icon.svg" alt=""><h1>Transporteur</h1><p>Espace chauffeur</p><div class="bar"><i></i></div><small>Chargement…</small></div>
 <header class="top" id="top"></header>
-<main class="wrap" id="app"><div class="center" style="padding:80px 0"><span class="spinner"></span></div></main>
-<footer class="foot">Transporteur VTC · <a href="./">Réserver une course</a></footer>
+<main class="wrap" id="app"></main>
+<nav class="tabbar hidden" id="tabbar"></nav>
+<div id="overlay"></div>
 </body>
 </html>

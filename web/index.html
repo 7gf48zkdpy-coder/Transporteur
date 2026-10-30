@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Transporteur VTC — Réservez votre chauffeur</title>
 <meta name="description" content="Transporteur VTC : votre chauffeur privé en Île-de-France. Prix garanti avant de réserver.">
-<meta name="theme-color" content="#060a13">
+<meta name="theme-color" content="#040814">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Transporteur">
 <link rel="manifest" href="manifest.json">
@@ -19,8 +20,10 @@
 <script type="module" src="client.js"></script>
 </head>
 <body>
+<div id="splash"><img src="icon.svg" alt=""><h1>Transporteur</h1><p>Votre chauffeur privé</p><div class="bar"><i></i></div><small>Chargement…</small></div>
 <header class="top" id="top"></header>
-<main class="wrap" id="app"><div class="center" style="padding:80px 0"><span class="spinner"></span></div></main>
-<footer class="foot">Transporteur VTC · <a href="chauffeur.html">Espace chauffeur</a></footer>
+<main class="wrap" id="app"></main>
+<nav class="tabbar hidden" id="tabbar"></nav>
+<div id="overlay"></div>
 </body>
 </html>
