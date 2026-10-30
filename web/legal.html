@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aide et informations légales — Transporteur VTC</title>
+<meta name="theme-color" content="#040814">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="ui.css">
+<style>
+  section.card { scroll-margin-top: 90px; }
+  section h2 { margin-top: 0; }
+  section h3 { font-size: 14px; color: var(--blue2); text-transform: uppercase; letter-spacing: .06em; margin: 18px 0 4px; }
+  section p, section li { color: #cdd6ea; }
+  details { border-bottom: 1px solid var(--line); padding: 12px 0; }
+  details:last-child { border-bottom: 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .todo { color: var(--warn); }
+  .nav-legal { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+</style>
+</head>
+<body>
+<header class="top"><a class="iconbtn" href="./" id="back" aria-label="Retour"><svg class="i" viewBox="0 0 24 24"><path d="M20 12H4M10 6l-6 6 6 6"/></svg></a>
+  <div class="brand">Transporteur<small>Aide et informations légales</small></div></header>
+<main class="wrap" id="app"><div class="center" style="padding:60px 0"><span class="spinner"></span></div></main>
+<script type="module">
+import { sb, esc } from "./core.js";
+import { getSettings } from "./ui.js";
+document.getElementById("back").onclick = (e) => { if (history.length > 1) { e.preventDefault(); history.back(); } };
+const s = await getSettings().catch(() => ({}));
+const v = (x, ph) => x ? esc(x) : `<span class="todo">${ph}</span>`;
+const nom = s.nom || "Transporteur VTC";
+const mail = s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : v("", "adresse e-mail à compléter");
+const tel = s.tel ? `<a href="tel:${esc(s.tel)}">${esc(s.tel)}</a>` : "";
+document.getElementById("app").innerHTML = `
+  <h1>Aide et informations</h1>
+  <div class="nav-legal"><a class="chip" href="#aide">Aide</a><a class="chip" href="#cgv">CGV</a><a class="chip" href="#confidentialite">Confidentialité</a><a class="chip" href="#mentions">Mentions légales</a></div>
+
+  <section class="card" id="aide"><h2>Aide et support</h2>
+    <p>Une question, un objet oublié, un souci sur une course ? Contactez-nous : ${mail}${tel ? ` · ${tel}` : ""}.</p>
+    <details><summary>Comment réserver une course ?</summary><p>Indiquez votre départ et votre arrivée, appuyez sur « Voir les prix », choisissez le véhicule et le paiement, puis « Réserver ». Le prix affiché est garanti.</p></details>
+    <details><summary>Comment payer ?</summary><p>À bord (espèces, carte sur le terminal du chauffeur ou virement) ou par carte bancaire dans l'appli. Avec la carte, le montant est réservé à la réservation et débité à la fin de la course.</p></details>
+    <details><summary>Comment contacter mon chauffeur ?</summary><p>Dès qu'un chauffeur accepte la course, vous voyez son nom, sa voiture et sa plaque, et vous pouvez l'appeler ou lui écrire dans l'appli.</p></details>
+    <details><summary>Puis-je annuler ?</summary><p>${esc(s.annulation || "L'annulation est gratuite tant que le chauffeur n'est pas en route.")}</p></details>
+    <details><summary>J'ai oublié un objet dans la voiture</summary><p>Écrivez au chauffeur depuis la course (pendant 24 h) ou contactez-nous : ${mail}.</p></details>
+    <details><summary>Je suis chauffeur : comment rejoindre Transporteur ?</summary><p>Créez votre compte dans l'<a href="chauffeur.html">espace chauffeur</a>, renseignez votre véhicule et envoyez vos 8 justificatifs (carte VTC, permis, pièce d'identité, assurances, carte grise, registre EVTC, Kbis ou SIRENE). Votre compte est activé après vérification.</p></details>
+    <details><summary>Je suis chauffeur : comment suis-je payé ?</summary><p>Pour les courses payées à bord, vous encaissez directement le client ; la commission de la plateforme (15 %) est indiquée dans vos revenus. Pour les courses payées par carte, votre part (85 %) est versée sur votre compte après activation des versements dans Paramètres.</p></details>
+  </section>
+
+  <section class="card" id="cgv"><h2>Conditions générales de vente</h2>
+    <h3>1. Objet</h3><p>Les présentes conditions encadrent les courses de transport de personnes en voiture de transport avec chauffeur (VTC) réservées via l'application ${esc(nom)}. Toute réservation vaut acceptation de ces conditions.</p>
+    <h3>2. Réservation</h3><p>Conformément à la réglementation VTC, toute course fait l'objet d'une réservation préalable dans l'application. La réservation est confirmée lorsqu'un chauffeur l'accepte ; le client en est informé dans l'application.</p>
+    <h3>3. Prix</h3><p>Le prix est calculé et affiché avant la réservation (distance, durée, catégorie du véhicule ou forfait). Le prix affiché au moment de la réservation est ferme, sauf modification de la course à la demande du client (arrêt supplémentaire, changement de destination). Les prix sont indiqués toutes taxes comprises${s.tva === "assujetti" ? "" : " ; TVA non applicable, article 293 B du CGI"}. Course minimum : 10 €.</p>
+    <h3>4. Annulation</h3><p>${esc(s.annulation || "L'annulation est gratuite tant que le chauffeur n'est pas en route. Une fois le chauffeur en route, des frais d'annulation de 10 € s'appliquent.")} En cas d'absence du client au point de prise en charge, les mêmes frais peuvent s'appliquer.</p>
+    <h3>5. Paiement</h3><p>Le paiement se fait à bord (espèces, carte sur terminal, virement) ou par carte bancaire dans l'application via notre prestataire de paiement sécurisé (Stripe). Aucune donnée de carte n'est enregistrée par ${esc(nom)}. Un reçu est disponible dans l'application pour chaque course terminée.</p>
+    <h3>6. Passagers et bagages</h3><p>Le nombre de passagers indiqué à la réservation doit être respecté ; le chauffeur peut refuser une prise en charge qui dépasse la capacité du véhicule. Les enfants doivent voyager avec un dispositif adapté. Il est interdit de fumer dans le véhicule.</p>
+    <h3>7. Responsabilité</h3><p>Chaque chauffeur est titulaire d'une carte professionnelle VTC et d'une assurance couvrant le transport de personnes, vérifiées avant son activation. Il ne peut être tenu responsable des retards dus à un cas de force majeure. Le client est responsable des dégradations qu'il cause au véhicule.</p>
+    <h3>8. Droit de rétractation</h3><p>Conformément à l'article L221-28 du Code de la consommation, le droit de rétractation ne s'applique pas aux services de transport de passagers fournis à une date déterminée.</p>
+    <h3>9. Réclamations et médiation</h3><p>Pour toute réclamation : ${mail}. En cas de litige non résolu, le client peut recourir gratuitement au médiateur de la consommation : ${v(s.mediateur, "médiateur à compléter")}.</p>
+    <h3>10. Droit applicable</h3><p>Les présentes conditions sont soumises au droit français.</p>
+  </section>
+
+  <section class="card" id="confidentialite"><h2>Politique de confidentialité</h2>
+    <h3>Responsable du traitement</h3><p>${esc(nom)} — ${mail}</p>
+    <h3>Données collectées</h3><ul>
+      <li>Compte : nom, téléphone, adresse e-mail, photo de profil si vous en ajoutez une.</li>
+      <li>Courses : adresses de départ et d'arrivée, date, prix, mode de paiement, note laissée au chauffeur, messages échangés pendant la course, notes données.</li>
+      <li>Position du client : seulement s'il l'autorise, pour remplir l'adresse de départ.</li>
+      <li>Chauffeurs : position GPS pendant qu'ils sont en ligne ou en course ; justificatifs professionnels (stockés de façon privée, visibles uniquement par le chauffeur et l'administrateur).</li></ul>
+    <h3>Pourquoi</h3><p>Ces données servent uniquement à réserver et réaliser les courses, mettre en relation client et chauffeur, établir les reçus et respecter nos obligations légales (exécution du contrat, obligations comptables et réglementaires VTC). Elles ne sont ni vendues ni utilisées pour de la publicité.</p>
+    <h3>Qui y a accès</h3><p>Le chauffeur de la course (nom, téléphone, adresses), l'administrateur de ${esc(nom)} et nos prestataires techniques : Supabase (base de données, Paris), Netlify (hébergement du site), Stripe (paiement par carte), CARTO et OpenStreetMap (fonds de carte), Géoplateforme IGN (recherche d'adresses).</p>
+    <h3>Durée de conservation</h3><p>Compte : tant qu'il est actif. Courses et reçus : 10 ans (obligation comptable). Messages : 1 an. Position des chauffeurs : seule la dernière position connue est conservée.</p>
+    <h3>Vos droits</h3><p>Accès, rectification, suppression, limitation, opposition et portabilité : écrivez à ${mail}. Vous pouvez aussi saisir la CNIL (cnil.fr).</p>
+    <h3>Cookies</h3><p>Aucun cookie publicitaire ni outil de mesure d'audience. Seules les informations nécessaires au fonctionnement (session de connexion, langue, réglages) sont enregistrées sur votre appareil.</p>
+  </section>
+
+  <section class="card" id="mentions"><h2>Mentions légales</h2>
+    <h3>Éditeur</h3><p>${esc(nom)}${s.forme ? " — " + esc(s.forme) : ""}<br>Adresse : ${v(s.adresse, "adresse à compléter")}<br>SIRET : ${v(s.siret, "SIRET à compléter")}<br>
+      ${s.evtc ? `Registre des exploitants VTC : ${esc(s.evtc)}<br>` : ""}${tel ? `Téléphone : ${tel}<br>` : ""}E-mail : ${mail}<br>Directeur de la publication : ${v(s.responsable, "nom à compléter")}</p>
+    <h3>Hébergement</h3><p>Site : Netlify, Inc. — 101 2nd Street, Suite 575, San Francisco, CA 94105, États-Unis.<br>Données : Supabase, Inc. — serveurs situés à Paris (Union européenne).</p>
+    <h3>Propriété intellectuelle</h3><p>Les textes, logos et éléments graphiques de l'application sont la propriété de l'éditeur. Toute reproduction sans autorisation est interdite.</p>
+  </section>`;
+if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+</script>
+</body>
+</html>
