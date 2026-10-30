@@ -1,9 +1,9 @@
 /* Transporteur VTC — finitions : carte bleu nuit, photos, bouton à glisser, animations, messagerie */
 
-/* Carte bleu nuit : fond CARTO Dark Matter teinté (web/map-plus.js), noms de rues gardés nets et légèrement bleutés. */
-.leaflet-container { background: #071029 !important; }
-.leaflet-layer.tiles-base { filter: sepia(1) hue-rotate(185deg) saturate(2.4) brightness(1.2) contrast(1.05); }
-.leaflet-layer.tiles-labels { filter: brightness(1.15) sepia(.25) hue-rotate(180deg); opacity: .9; pointer-events: none; }
+/* Carte : fond sombre Esri (web/map-plus.js), couleurs d origine, sans teinte. */
+.leaflet-container { background: #1e1e1e !important; }
+.leaflet-layer.tiles-base { filter: none; }
+.leaflet-layer.tiles-labels { filter: none; pointer-events: none; }
 .car-top { width: 30px; height: 52px; transition: transform .6s ease; filter: drop-shadow(0 4px 8px rgba(0,0,0,.5)); }
 .car-top svg { width: 100%; height: 100%; display: block; }
 .waze-link { background: #33ccff !important; color: #04122e !important; border-color: transparent !important; font-weight: 700; }
