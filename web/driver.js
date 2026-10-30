@@ -8,7 +8,7 @@ import { CAM, avatarHtml, pickAvatar, ratingLine, slideButton, celebrate, openCh
 const W = {
   fr: {
     home: "Accueil", rides: "Courses", earnings: "Revenus", profile: "Profil", myProfile: "Mon profil", settings: "Paramètres", logout: "Se déconnecter",
-    online: "En ligne", offline: "Hors ligne", onlineSub: "Vous recevez les demandes à proximité", offlineSub: "Passez en ligne pour recevoir des courses",
+    online: "En ligne", offline: "Hors ligne", onlineSub: "Vous recevez des courses", offlineSub: "Passez en ligne pour recevoir des courses",
     ridesToday: "Courses aujourd'hui", earnToday: "Revenus aujourd'hui", avgRating: "Note moyenne", nearby: "Demandes à proximité",
     details: "Voir les détails", noReq: "Aucune demande pour le moment.", goOnline: "Passez en ligne pour voir les demandes.",
     newReq: "Nouvelle demande", distance: "Distance", estDuration: "Durée estimée", price: "Prix", accept: "Accepter", refuse: "Refuser",
@@ -35,7 +35,7 @@ const W = {
   },
   en: {
     home: "Home", rides: "Rides", earnings: "Earnings", profile: "Profile", myProfile: "My profile", settings: "Settings", logout: "Log out",
-    online: "Online", offline: "Offline", onlineSub: "You receive nearby requests", offlineSub: "Go online to receive rides",
+    online: "Online", offline: "Offline", onlineSub: "You receive rides", offlineSub: "Go online to receive rides",
     ridesToday: "Rides today", earnToday: "Earnings today", avgRating: "Average rating", nearby: "Nearby requests",
     details: "See details", noReq: "No requests right now.", goOnline: "Go online to see requests.",
     newReq: "New request", distance: "Distance", estDuration: "Est. duration", price: "Price", accept: "Accept", refuse: "Decline",
@@ -169,6 +169,7 @@ let onPos = null, navRefresh = null;
 const short = (label) => String(label || "").split(",")[0].trim();
 const distKm = (a, b) => { const r = (d) => d * Math.PI / 180, h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
 function header(withMenu) {
+  top.classList.remove("hidden"); document.body.classList.remove("no-top");
   top.innerHTML = `
     <img src="icon.svg" alt="" ${withMenu ? 'id="menuBtn" style="cursor:pointer"' : ""}>
     <div class="brand">Transporteur<small>${w("driverSpace")}</small></div>
@@ -196,13 +197,13 @@ function openDrawer() {
   ];
   const bg = document.createElement("div"); bg.className = "drawer-bg";
   const d = document.createElement("aside"); d.className = "drawer";
-  d.innerHTML = `<img class="logo" src="icon.svg" alt=""><h2>Transporteur</h2><div class="muted">${w("driverSpace")}</div>
+  d.innerHTML = `<button class="dclose" id="dClose" aria-label="${t("close")}">${icon("x")}</button><img class="logo" src="icon.svg" alt=""><h2>Transporteur</h2><div class="muted">${w("driverSpace")}</div>
     <nav>${items.map(([k, ic, label, n]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${icon(ic)}<span class="grow">${esc(label)}</span>${n ? `<span class="count">${n}</span>` : ""}</button>`).join("")}
       ${driver ? `<button id="dMsg">${icon("msg")}<span class="grow">${w("messages")}</span></button>` : ""}
       <button id="dHelp">${icon("shield")}<span class="grow">${w("help")}</span></button></nav>
     <nav style="flex:0"><button id="dOut" class="logout">${icon("logout")}<span class="grow">${w("logout")}</span></button></nav>`;
   const close = () => { bg.remove(); d.remove(); };
-  bg.onclick = close;
+  bg.onclick = close; d.querySelector("#dClose").onclick = close;
   d.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => { close(); go(b.dataset.v); });
   d.querySelector("#dOut").onclick = () => { close(); logout(); };
   d.querySelector("#dHelp").onclick = () => { location.href = "legal.html#aide"; };
@@ -222,10 +223,15 @@ async function logout() {
   await sb.auth.signOut(); me = null; overlay.innerHTML = ""; overlayMode = null; start();
 }
 
+const pageHead = (title, end = "", back = "home") => `<div class="back"><button data-back="${back}" aria-label="${t("back")}">${icon("back")}</button><span class="grow">${title}</span>${end}</div>`;
+function bindBack() { app.querySelectorAll("[data-back]").forEach((b) => b.onclick = () => go(b.dataset.back)); }
+const eur0 = (c) => euro(c).replace(/[,.]00(?=\s|$)/, "");
 function go(v, s = null) { view = v; sub = s; window.scrollTo(0, 0); render(); }
 
 async function render() {
-  header(true);
+  const bare = driver && view !== "home" && view !== "admin";
+  top.classList.toggle("hidden", bare); document.body.classList.toggle("no-top", bare);
+  if (!bare) header(true);
   drawTabbar();
   try {
     if (view === "home") await homeView();
@@ -247,18 +253,18 @@ async function homeView() {
   const running = mine[0];
   app.innerHTML = `
     <div class="card avail ${driver.is_available ? "on" : ""}">
-      <span class="dot"></span><div class="txt"><strong>${driver.is_available ? w("online") : w("offline")}</strong><span class="muted">${driver.is_available ? w("onlineSub") : w("offlineSub")}</span></div>
+      <span class="dot"></span><div class="txt"><strong>${driver.is_available ? w("online") : w("offline")}</strong><small>${driver.is_available ? w("onlineSub") : w("offlineSub")}</small></div>
       <input type="checkbox" class="tg" id="avail" ${driver.is_available ? "checked" : ""} aria-label="${w("availability")}">
     </div>
     <div class="card stats">
       <div><strong>${todayRows.length}</strong><span>${w("ridesToday")}</span></div>
-      <div><strong>${euro(earned).replace(/,00/, "")}</strong><span>${w("earnToday")}</span></div>
+      <div><strong>${eur0(earned)}</strong><span>${w("earnToday")}</span></div>
       <div><strong>${driver.rating ?? "—"}${driver.rating ? '<span style="display:inline;color:var(--warn);font-size:16px"> ★</span>' : ""}</strong><span>${w("avgRating")}</span></div>
     </div>
     ${running ? `<div class="card"><div class="row" style="justify-content:space-between"><strong>${w("rideNow")}</strong><span style="flex:0">${statusBadge(running.status)}</span></div>
       <div class="route" style="margin-top:8px"><div>${esc(running.pickup_label)}</div><div>${esc(running.destination_label)}</div></div>
       <button class="btn" id="resumeBtn">${icon("nav")} ${w("resume")}</button></div>` : ""}
-    <div class="map" id="homeMap" style="height:210px"></div>
+    <div class="map" id="homeMap" style="height:230px"></div>
     <div class="section-title"><span>${w("nearby")}</span>${feed.length ? `<span class="count">${feed.length}</span>` : ""}<span class="grow"></span>
       <button class="link" id="allReq" aria-label="${w("rides")}">${icon("chevR")}</button></div>
     ${!driver.is_available ? `<p class="list-empty">${w("goOnline")}</p>` : feed.length ? feed.slice(0, 3).map(reqCard).join("") : `<p class="list-empty">${w("noReq")}</p>`}`;
@@ -291,15 +297,16 @@ async function homeView() {
   }
 }
 
+const paxTxt = (n) => `${n > 1 ? "1-" + n : 1} ${lang === "en" ? (n > 1 ? "passengers" : "passenger") : (n > 1 ? "passagers" : "passager")}`;
+const metaRow = (b) => `<div class="meta"><span>${icon("car")} ${esc(t("v_" + b.vehicle_type))}</span><span>${icon("user")} ${paxTxt(b.passengers)}</span>
+      ${b.payment_method === "ON_BOARD" ? `<span>${icon("wallet")} ${t("onBoard")}</span>` : ""}</div>`;
 function reqCard(b) {
-  return `<div class="card">
+  return `<div class="card reqcard">
     <div class="req"><div class="vic">${icon("car")}</div>
       <div class="body"><div class="title">${esc(short(b.pickup_label))} → ${esc(short(b.destination_label))}</div>
-        <div class="sub">${Math.round((b.duration_seconds || 0) / 60)} min · ${fmtDist(b.distance_meters || 0)}${b.scheduled_at ? ` · 🗓 ${fmtDate(b.scheduled_at)}` : ""}</div>
-        ${myPos && b.pickup_lat != null ? `<div class="sub" style="color:var(--blue2)">${icon("pin")} ${fmtDist(distKm(myPos, { lat: b.pickup_lat, lng: b.pickup_lng }) * 1300)} ${w("fromYou")}</div>` : ""}</div>
-      <div class="price">${euro(b.quoted_fare_cents).replace(/,00/, "")}</div></div>
-    <div class="meta"><span>${icon("car")} ${esc(t("v_" + b.vehicle_type))}</span><span>${icon("users")} ${b.passengers} ${w("passengers")}</span>
-      <span>${icon(b.payment_method === "ON_BOARD" ? "wallet" : "card")} ${b.payment_method === "ON_BOARD" ? t("onBoard") : t("card")}</span></div>
+        <div class="sub">${Math.round((b.duration_seconds || 0) / 60)} min · ${fmtDist(b.distance_meters || 0)}${b.scheduled_at ? ` · ${fmtDate(b.scheduled_at)}` : ""}</div></div>
+      <div class="price">${eur0(b.quoted_fare_cents)}</div></div>
+    ${metaRow(b)}
     <button class="btn" data-req="${b.id}">${w("details")}</button>
   </div>`;
 }
@@ -328,16 +335,13 @@ async function openRequest(b, auto) {
   overlay.innerHTML = ""; overlay.appendChild(el);
   el.innerHTML = `<div class="inner">
     <div class="sheet-head"><h1>${w("newReq")}</h1><button class="iconbtn" id="rqClose" aria-label="${t("close")}">${icon("x")}</button></div>
-    <div class="map" id="rqMap" style="height:260px;margin-top:0"></div>
+    <div class="map" id="rqMap" style="height:290px;margin-top:0"></div>
     <div class="trip-stats"><div><span>${w("distance")}</span><strong>${fmtDist(b.distance_meters || 0)}</strong></div>
       <div><span>${w("estDuration")}</span><strong>${Math.round((b.duration_seconds || 0) / 60)} min</strong></div>
-      <div style="text-align:right"><span>${w("price")}</span><strong>${euro(b.quoted_fare_cents).replace(/,00/, "")}</strong></div></div>
-    <div class="card" style="padding:12px 16px"><div class="meta" style="margin:0"><span>${icon("car")} ${esc(t("v_" + b.vehicle_type))}</span><span>${icon("users")} ${b.passengers} ${w("passengers")}</span>
-      <span>${icon(b.payment_method === "ON_BOARD" ? "wallet" : "card")} ${b.payment_method === "ON_BOARD" ? t("onBoard") : t("card")}</span></div></div>
-    <div class="card"><div class="route"><div>${esc(b.pickup_label)}</div><div>${esc(b.destination_label)}</div></div>
-      ${b.scheduled_at ? `<div class="kv"><span>${t("scheduledFor")}</span><span>${fmtDate(b.scheduled_at)}</span></div>` : ""}
-      ${b.notes ? `<div class="kv"><span>📝</span><span>${esc(b.notes)}</span></div>` : ""}
-      <div class="kv"><span>${w("yourEarn")}</span><strong>${euro(b.driver_earnings_cents)}</strong></div></div>
+      <div style="text-align:right"><span>${w("price")}</span><strong>${eur0(b.quoted_fare_cents)}</strong></div></div>
+    <div class="card metacard">${metaRow(b)}</div>
+    ${b.scheduled_at || b.notes ? `<div class="card metacard">${b.scheduled_at ? `<div class="kv"><span>${t("scheduledFor")}</span><span>${fmtDate(b.scheduled_at)}</span></div>` : ""}
+      ${b.notes ? `<div class="kv"><span>Note</span><span>${esc(b.notes)}</span></div>` : ""}</div>` : ""}
     <button class="btn" id="rqAccept">${w("accept")}</button>
     <button class="btn secondary" id="rqRefuse">${w("refuse")}</button>
     ${auto ? `<div class="countdown"><div class="ring"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="24" stroke="#1b2948" stroke-width="4" fill="none"/>
@@ -436,13 +440,12 @@ async function openNav(id) {
     $("#stopBtn")?.addEventListener("click", (e) => { if (confirm(w("stopConfirm"))) busy(e.target, async () => { await call("booking-cancel", { bookingId: b.id, action: "release" }); closeNav(); }); });
     $("#navPanel").innerHTML = `
       <div class="eta"><div class="grow"><strong>${w("arrivalIn")} ${mins} min</strong><span class="muted">${r ? fmtDist(r.distance) : fmtDist(b.distance_meters || 0)} · ${eta}</span></div>
-        <a class="btn small secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${tg.lat},${tg.lng}&travelmode=driving">${w("directions")}</a></div>
-      <div style="margin:10px 0 2px">${statusBadge(b.status)}</div>
+        <a class="btn small secondary navbtn" target="_blank" rel="noopener" href="https://waze.com/ul?ll=${tg.lat},${tg.lng}&navigate=yes">${w("directions")}</a></div>
       ${client ? `<div class="person">${avatarHtml(client)}
         <div class="grow"><small>${w("client")}</small><strong>${esc(client.display_name)}</strong>${ratingLine(client.client_rating, client.client_rating_count)}</div>
         ${client.phone ? `<a class="round" href="tel:${esc(client.phone)}" aria-label="${t("call")}">${icon("phone")}</a>` : ""}
         <button class="round" id="chatBtn" aria-label="${w("messages")}">${icon("msg")}${unread ? `<span class="nb">${unread}</span>` : ""}</button></div>` : ""}
-      <div class="person"><div class="avatar" style="background:var(--card2);border:1px solid var(--line)">${icon(b.status === "IN_PROGRESS" ? "flag" : "pin")}</div>
+      <div class="person"><div class="avatar plain">${icon(b.status === "IN_PROGRESS" ? "car" : "pin")}</div>
         <div class="grow"><small>${b.status === "IN_PROGRESS" ? w("destination") : w("pickup")}</small><strong>${esc(short(tg.label))}</strong><small>${esc(tg.label.split(",").slice(1).join(",").trim())}</small></div></div>
       ${b.payment_method === "ON_BOARD" ? `<div class="kv"><span>${w("toCollect")}</span><strong>${euro(b.quoted_fare_cents)}</strong></div>` : ""}
       ${b.notes ? `<p class="muted">📝 ${esc(b.notes)}</p>` : ""}
@@ -501,15 +504,15 @@ function showDone(b, client) {
   const fare = b.final_fare_cents ?? b.quoted_fare_cents;
   overlay.innerHTML = `<div class="sheet"><div class="inner">
     <div class="done"><div class="check">${icon("check")}</div><h1 style="margin:0">${w("done")}</h1>
-      <div class="amount">${euro(fare).replace(/,00/, "")}</div><div class="muted">${b.payment_method === "ON_BOARD" ? w("paidBoard") : w("paidCard")}</div></div>
+      <div class="amount">${eur0(fare)}</div><div class="muted">${b.payment_method === "ON_BOARD" ? w("paidBoard") : w("paidCard")}</div></div>
     <div class="card"><div class="kv"><span>${w("farePrice")}</span><strong>${euro(fare)}</strong></div>
       <div class="kv"><span>${w("commission")}</span><span>−${euro(b.commission_cents)}</span></div>
       <div class="kv"><span style="color:var(--text);font-weight:700">${w("yourEarn")}</span><strong>${euro(b.driver_earnings_cents)}</strong></div></div>
-    ${client ? `<div class="card center"><div class="person" style="border:0;padding:0 0 8px;justify-content:center;text-align:left">${avatarHtml(client)}
-      <div><small class="muted">${w("client")}</small><br><strong>${esc(client.display_name)}</strong></div></div>
-      ${b.client_rating ? `<div class="stars-s" style="font-size:24px">${"★".repeat(b.client_rating)}</div>` : `<div class="muted">${w("rateClient")}</div><div class="stars" id="cStars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}">★</button>`).join("")}</div>`}</div>` : ""}
+    ${client ? `<div class="card"><div class="person" style="border:0;padding:0">${avatarHtml(client)}
+      <div class="grow"><small>${w("client")}</small><strong>${esc(client.display_name)}</strong>
+      ${b.client_rating ? `<div class="stars-s">${"★".repeat(b.client_rating)}</div>` : `<div class="stars sm" id="cStars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}" aria-label="${n}">★</button>`).join("")}</div>`}</div>
+      <span class="chev">${icon("chevR")}</span></div></div>` : ""}
     <button class="btn" id="dNew">${w("newRide")}</button>
-    <a class="btn secondary" href="receipt.html?id=${b.id}">${icon("doc")} ${w("receipt")}</a>
     <button class="btn secondary" id="dDetail">${w("seeDetail")}</button></div></div>`;
   bindStars($("#cStars"), (n) => rpc("rate_client", { p_booking_id: b.id, p_rating: n }));
   const leave = (v, s) => { overlay.innerHTML = ""; overlayMode = null; scheduleRefresh(); go(v, s); };
@@ -535,10 +538,11 @@ async function ridesView() {
   const row = (b) => `<div class="list-row" data-b="${b.id}"><div class="vic">${icon("car")}</div>
     <div class="body"><div>${esc(short(b.pickup_label))} → ${esc(short(b.destination_label))}</div><small>${fmtDate(b.scheduled_at || b.completed_at || b.created_at)} · ${esc(t("s_" + b.status))}</small></div>
     <div class="end">${euro(b.final_fare_cents ?? b.quoted_fare_cents).replace(/,00/, "")}</div><span class="chev">${icon("chevR")}</span></div>`;
-  app.innerHTML = `<h1>${w("myRides")}</h1>
+  app.innerHTML = `${pageHead(w("myRides"))}
     ${feed.length ? `<div class="section-title"><span>${w("nearby")}</span><span class="count">${feed.length}</span></div>${feed.map(reqCard).join("")}` : ""}
     <div class="section-title">${w("upcoming")}</div><div class="card" style="padding:4px 16px">${cur.length ? cur.map(row).join("") : `<p class="list-empty">${w("noRides")}</p>`}</div>
     <div class="section-title">${w("history")}</div><div class="card" style="padding:4px 16px">${past.length ? past.map(row).join("") : `<p class="list-empty">${w("noRides")}</p>`}</div>`;
+  bindBack();
   app.querySelectorAll("[data-req]").forEach((b) => b.onclick = () => openRequest(feed.find((x) => x.id === b.dataset.req), false));
   app.querySelectorAll("[data-b]").forEach((el) => el.onclick = () => {
     const b = rows.find((x) => x.id === el.dataset.b);
@@ -592,18 +596,21 @@ async function earningsView() {
   rows.forEach((b) => { bins[binOf(new Date(b.completed_at))] += b.driver_earnings_cents || 0; });
   const total = rows.reduce((s, b) => s + (b.driver_earnings_cents || 0), 0);
   const owed = rows.reduce((s, b) => s + (b.payment_method === "ON_BOARD" ? b.commission_cents || 0 : 0), 0);
-  const max = Math.max(...bins, 1);
-  app.innerHTML = `<h1>${w("myEarnings")}</h1>
+  const step = [500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000].find((x) => x * 4 >= Math.max(...bins, 1)) || 200000;
+  const max = step * 4;
+  app.innerHTML = `${pageHead(w("myEarnings"))}
     <div class="seg" id="eSeg">${["day", "week", "month"].map((k) => `<button data-m="${k}" class="${earnMode === k ? "on" : ""}">${w(k)}</button>`).join("")}</div>
     <div class="datenav"><button id="ePrev" aria-label="${t("back")}">${icon("chevL")}</button><span>${esc(title)}</span><button id="eNext" ${earnOffset >= 0 ? "disabled" : ""} aria-label="+">${icon("chevR")}</button></div>
-    <div class="total"><strong>${euro(total).replace(/,00/, "")}</strong><span class="muted">${rows.length} ${w("nRides")}</span></div>
-    <div class="card"><div class="chart">${bins.map((v) => `<div class="${v ? "" : "zero"}" style="height:${Math.max(3, (v / max) * 100)}%" title="${euro(v)}"></div>`).join("")}</div>
-      <div class="chart-x">${labels.map((l) => `<span>${l}</span>`).join("")}</div>
-      ${owed ? `<div class="kv" style="margin-top:10px"><span>${w("owed")}</span><strong>${euro(owed)}</strong></div>` : ""}</div>
+    <div class="total"><strong>${eur0(total)}</strong><span class="muted">${rows.length} ${w("nRides")}</span></div>
+    <div class="chartbox"><div class="plot"><div class="chart">${bins.map((v) => `<i><b class="${v ? "" : "zero"}" style="height:${v ? Math.max(4, (v / max) * 100) : 0}%" title="${euro(v)}"></b></i>`).join("")}</div>
+      <div class="yaxis">${[4, 3, 2, 1, 0].map((k) => `<span>${eur0(step * k)}</span>`).join("")}</div></div>
+      <div class="chart-x">${labels.map((l) => `<span>${l}</span>`).join("")}</div></div>
+      ${owed ? `<div class="kv" style="margin-top:10px"><span>${w("owed")}</span><strong>${euro(owed)}</strong></div>` : ""}
     <div class="section-title">${w("rideDetails")}</div>
     <div class="card" style="padding:4px 16px">${rows.length ? rows.map((b) => `<div class="list-row" data-b="${b.id}"><div class="vic">${icon("car")}</div>
       <div class="body"><div>${esc(short(b.pickup_label))} → ${esc(short(b.destination_label))}</div><small>${new Date(b.completed_at).toLocaleString(lang === "en" ? "en-GB" : "fr-FR", earnMode === "day" ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div>
-      <div class="end">${euro(b.final_fare_cents).replace(/,00/, "")}</div><span class="chev">${icon("chevR")}</span></div>`).join("") : `<p class="list-empty">${w("noRides")}</p>`}</div>`;
+      <div class="end">${eur0(b.final_fare_cents)}</div><span class="chev">${icon("chevR")}</span></div>`).join("") : `<p class="list-empty">${w("noRides")}</p>`}</div>`;
+  bindBack();
   $("#eSeg").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; earnMode = b.dataset.m; earnOffset = 0; render(); };
   $("#ePrev").onclick = () => { earnOffset--; render(); };
   $("#eNext").onclick = () => { if (earnOffset < 0) { earnOffset++; render(); } };
@@ -624,7 +631,7 @@ async function profileView() {
     return `<span class="badge ${cls}">${s === "APPROVED" ? w("validated") : t("d_" + s)}</span>`;
   };
   const r = driver.rating;
-  app.innerHTML = `<div class="back"><span class="grow">${w("myProfile")}</span><button id="gear" aria-label="${w("settings")}">${icon("settings")}</button></div>
+  app.innerHTML = `${pageHead(w("myProfile"), `<button id="gear" aria-label="${w("settings")}">${icon("settings")}</button>`)}
     <div class="profile-head"><div style="display:inline-block" id="photoBtn" title="${w("changePhoto")}">${avatarHtml(me, "lg editable", `${driver.partner_status === "VALIDATED" ? `<span class="ok">${icon("check")}</span>` : ""}<span class="cam">${CAM}</span>`)}</div>
       <h2>${esc(me.display_name)}</h2>
       <div class="stars-s">${r ? "★".repeat(Math.round(r)) + "☆".repeat(5 - Math.round(r)) : "☆☆☆☆☆"} <span class="muted">${r ?? "—"} (${count || 0} ${w("ratingN")})</span></div>
@@ -644,6 +651,7 @@ async function profileView() {
       <label>${t("phone")}</label><input name="phone" type="tel" value="${esc(me.phone)}">
       <label>${t("siret")}</label><input name="siret" inputmode="numeric" maxlength="14" value="${esc(driver.siret)}">
       <button class="btn secondary" type="submit">${t("save")}</button></form>`;
+  bindBack();
   $("#gear").onclick = () => go("settings");
   $("#photoBtn").onclick = async () => { const url = await pickAvatar(me.id); if (url) { me.avatar_url = url; render(); } };
   $("#vehRow").onclick = () => go("vehicle");
