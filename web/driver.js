@@ -2,6 +2,7 @@
 import { sb, isRecovery, lang, t, toggleLang, $, esc, euro, fmtDate, toast, busy, call, rpc, errText, statusBadge,
   currentProfile, renderAuth, VEHICLE_ICON, icon, makeMap, pinIcon, meIcon, labelIcon, routeLayer, getRoute, turnIcon,
   fmtDist, initials, hideSplash } from "./core.js";
+import { CAM, avatarHtml, pickAvatar, ratingLine, slideButton, celebrate, openChat, watchMessages, getSettings, registerSW } from "./ui.js";
 
 // ------------------------------------------------------------------ textes propres à l'espace chauffeur
 const W = {
@@ -25,7 +26,12 @@ const W = {
     notifs: "Notifications", notifsSub: "Alerte et son à chaque nouvelle demande", language: "Langue", cardPay: "Paiements par carte",
     cardOn: "Activés", cardOff: "À activer", admin: "Administration", driverSpace: "Espace chauffeur", steps: "Votre dossier",
     complete: "Compléter mon dossier", validated: "Validé", ratingN: "courses", security: "Urgence", call112: "Appeler le 112 ?",
-    stats: "Statistiques", loading: "Chargement…",
+    stats: "Statistiques", loading: "Chargement…", accepted: "Course acceptée", acceptedSub: "En route vers", fromYou: "de vous",
+    messages: "Messages", noActive: "Aucune course en cours : la messagerie s'ouvre quand vous avez une course.", help: "Aide et support",
+    terms: "Conditions d'utilisation", privacy: "Confidentialité", receipt: "Reçu (PDF)", rateClient: "Notez votre client", thanks: "Merci !",
+    company: "Mon entreprise", companySub: "Utilisé pour les mentions légales, les CGV et les reçus", changePhoto: "Changer la photo",
+    cName: "Nom commercial", cForm: "Forme (EI, SASU…)", cAddress: "Adresse", cEmail: "E-mail de contact", cPhone: "Téléphone", cEvtc: "N° registre VTC",
+    cMediator: "Médiateur de la consommation", cBoss: "Directeur de la publication", cVat: "TVA", cVatNo: "Non applicable (293 B)", cVatYes: "Assujetti", cCancel: "Politique d'annulation",
   },
   en: {
     home: "Home", rides: "Rides", earnings: "Earnings", profile: "Profile", myProfile: "My profile", settings: "Settings", logout: "Log out",
@@ -47,7 +53,12 @@ const W = {
     notifs: "Notifications", notifsSub: "Alert and sound for each new request", language: "Language", cardPay: "Card payments",
     cardOn: "Active", cardOff: "To activate", admin: "Administration", driverSpace: "Driver space", steps: "Your application",
     complete: "Complete my application", validated: "Approved", ratingN: "rides", security: "Emergency", call112: "Call 112?",
-    stats: "Statistics", loading: "Loading…",
+    stats: "Statistics", loading: "Loading…", accepted: "Ride accepted", acceptedSub: "Heading to", fromYou: "from you",
+    messages: "Messages", noActive: "No current ride: messaging opens when you have a ride.", help: "Help & support",
+    terms: "Terms of use", privacy: "Privacy", receipt: "Receipt (PDF)", rateClient: "Rate your client", thanks: "Thank you!",
+    company: "My company", companySub: "Used for legal notice, terms and receipts", changePhoto: "Change photo",
+    cName: "Trade name", cForm: "Legal form", cAddress: "Address", cEmail: "Contact email", cPhone: "Phone", cEvtc: "VTC register no.",
+    cMediator: "Consumer mediator", cBoss: "Publication director", cVat: "VAT", cVatNo: "Not applicable", cVatYes: "Registered", cCancel: "Cancellation policy",
   },
 };
 const w = (k) => W[lang]?.[k] ?? W.fr[k] ?? t(k);
@@ -69,6 +80,7 @@ let soundOn = store.get("sound", true), notifOn = store.get("notif", false);
 
 // ------------------------------------------------------------------ démarrage
 async function start() {
+  registerSW();
   me = await currentProfile();
   hideSplash();
   if (!me) { header(false); tabbar.classList.add("hidden"); return renderAuth(app, "driver", start); }
@@ -155,6 +167,7 @@ let onPos = null, navRefresh = null;
 
 // ------------------------------------------------------------------ cadre : en-tête, barre d'onglets, menu
 const short = (label) => String(label || "").split(",")[0].trim();
+const distKm = (a, b) => { const r = (d) => d * Math.PI / 180, h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
 function header(withMenu) {
   top.innerHTML = `
     <img src="icon.svg" alt="" ${withMenu ? 'id="menuBtn" style="cursor:pointer"' : ""}>
@@ -184,12 +197,22 @@ function openDrawer() {
   const bg = document.createElement("div"); bg.className = "drawer-bg";
   const d = document.createElement("aside"); d.className = "drawer";
   d.innerHTML = `<img class="logo" src="icon.svg" alt=""><h2>Transporteur</h2><div class="muted">${w("driverSpace")}</div>
-    <nav>${items.map(([k, ic, label, n]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${icon(ic)}<span class="grow">${esc(label)}</span>${n ? `<span class="count">${n}</span>` : ""}</button>`).join("")}</nav>
+    <nav>${items.map(([k, ic, label, n]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${icon(ic)}<span class="grow">${esc(label)}</span>${n ? `<span class="count">${n}</span>` : ""}</button>`).join("")}
+      ${driver ? `<button id="dMsg">${icon("msg")}<span class="grow">${w("messages")}</span></button>` : ""}
+      <button id="dHelp">${icon("shield")}<span class="grow">${w("help")}</span></button></nav>
     <nav style="flex:0"><button id="dOut" class="logout">${icon("logout")}<span class="grow">${w("logout")}</span></button></nav>`;
   const close = () => { bg.remove(); d.remove(); };
   bg.onclick = close;
   d.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => { close(); go(b.dataset.v); });
   d.querySelector("#dOut").onclick = () => { close(); logout(); };
+  d.querySelector("#dHelp").onclick = () => { location.href = "legal.html#aide"; };
+  d.querySelector("#dMsg")?.addEventListener("click", async () => {
+    close();
+    const b = mine[0];
+    if (!b) return toast(w("noActive"));
+    const { data: c } = await sb.from("profiles").select("display_name, phone, avatar_url").eq("id", b.client_user_id).maybeSingle();
+    openChat(b.id, me.id, c, "driver");
+  });
   document.body.append(bg, d);
 }
 
@@ -272,7 +295,8 @@ function reqCard(b) {
   return `<div class="card">
     <div class="req"><div class="vic">${icon("car")}</div>
       <div class="body"><div class="title">${esc(short(b.pickup_label))} → ${esc(short(b.destination_label))}</div>
-        <div class="sub">${Math.round((b.duration_seconds || 0) / 60)} min · ${fmtDist(b.distance_meters || 0)}${b.scheduled_at ? ` · 🗓 ${fmtDate(b.scheduled_at)}` : ""}</div></div>
+        <div class="sub">${Math.round((b.duration_seconds || 0) / 60)} min · ${fmtDist(b.distance_meters || 0)}${b.scheduled_at ? ` · 🗓 ${fmtDate(b.scheduled_at)}` : ""}</div>
+        ${myPos && b.pickup_lat != null ? `<div class="sub" style="color:var(--blue2)">${icon("pin")} ${fmtDist(distKm(myPos, { lat: b.pickup_lat, lng: b.pickup_lng }) * 1300)} ${w("fromYou")}</div>` : ""}</div>
       <div class="price">${euro(b.quoted_fare_cents).replace(/,00/, "")}</div></div>
     <div class="meta"><span>${icon("car")} ${esc(t("v_" + b.vehicle_type))}</span><span>${icon("users")} ${b.passengers} ${w("passengers")}</span>
       <span>${icon(b.payment_method === "ON_BOARD" ? "wallet" : "card")} ${b.payment_method === "ON_BOARD" ? t("onBoard") : t("card")}</span></div>
@@ -325,7 +349,9 @@ async function openRequest(b, auto) {
   el.querySelector("#rqRefuse").onclick = () => { refused.add(b.id); store.set("refusedReq", [...refused].slice(-200)); feed = feed.filter((x) => x.id !== b.id); close(); };
   el.querySelector("#rqAccept").onclick = (e) => busy(e.target, async () => {
     await rpc("accept_booking", { p_booking_id: b.id });
-    clearInterval(countdownTimer); overlay.innerHTML = ""; overlayMode = null;
+    clearInterval(countdownTimer); overlay.innerHTML = ""; overlayMode = "anim";
+    await celebrate(w("accepted"), `${w("acceptedSub")} ${short(b.pickup_label)}`);
+    overlayMode = null;
     await loadAll(); openNav(b.id);
   });
   if (auto) {
@@ -353,7 +379,7 @@ async function openRequest(b, auto) {
 async function openNav(id) {
   overlayMode = "nav";
   tabbar.classList.add("hidden");
-  let b = null, client = null, map = null, meMarker = null, targetMarker = null, layer = null, lastRouteAt = 0, lastRoutePos = null, followMe = true;
+  let b = null, client = null, map = null, meMarker = null, targetMarker = null, layer = null, lastRouteAt = 0, lastRoutePos = null, followMe = true, unread = 0, stopWatch = null;
   overlay.innerHTML = `<div class="nav-screen">
     <div class="map-full"><div class="mapbox" id="navMap"></div>
       <div class="nav-top"><button class="backb" id="navBack" aria-label="${t("back")}">${icon("back")}</button><div class="ttl">${w("rideNow")}</div><span id="stopSlot"></span></div>
@@ -412,32 +438,36 @@ async function openNav(id) {
       <div class="eta"><div class="grow"><strong>${w("arrivalIn")} ${mins} min</strong><span class="muted">${r ? fmtDist(r.distance) : fmtDist(b.distance_meters || 0)} · ${eta}</span></div>
         <a class="btn small secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${tg.lat},${tg.lng}&travelmode=driving">${w("directions")}</a></div>
       <div style="margin:10px 0 2px">${statusBadge(b.status)}</div>
-      ${client ? `<div class="person"><div class="avatar">${esc(initials(client.display_name))}</div>
-        <div class="grow"><small>${w("client")}</small><strong>${esc(client.display_name)}</strong></div>
-        ${client.phone ? `<a class="round" href="tel:${esc(client.phone)}" aria-label="${t("call")}">${icon("phone")}</a><a class="round" href="sms:${esc(client.phone)}" aria-label="SMS">${icon("msg")}</a>` : ""}</div>` : ""}
+      ${client ? `<div class="person">${avatarHtml(client)}
+        <div class="grow"><small>${w("client")}</small><strong>${esc(client.display_name)}</strong>${ratingLine(client.client_rating, client.client_rating_count)}</div>
+        ${client.phone ? `<a class="round" href="tel:${esc(client.phone)}" aria-label="${t("call")}">${icon("phone")}</a>` : ""}
+        <button class="round" id="chatBtn" aria-label="${w("messages")}">${icon("msg")}${unread ? `<span class="nb">${unread}</span>` : ""}</button></div>` : ""}
       <div class="person"><div class="avatar" style="background:var(--card2);border:1px solid var(--line)">${icon(b.status === "IN_PROGRESS" ? "flag" : "pin")}</div>
         <div class="grow"><small>${b.status === "IN_PROGRESS" ? w("destination") : w("pickup")}</small><strong>${esc(short(tg.label))}</strong><small>${esc(tg.label.split(",").slice(1).join(",").trim())}</small></div></div>
       ${b.payment_method === "ON_BOARD" ? `<div class="kv"><span>${w("toCollect")}</span><strong>${euro(b.quoted_fare_cents)}</strong></div>` : ""}
       ${b.notes ? `<p class="muted">📝 ${esc(b.notes)}</p>` : ""}
-      ${next ? `<button class="btn big" id="navAct"><span class="arrows">${icon("arrows")}</span>${next[1]}</button>` : ""}
+      <div id="slideSlot"></div>
       ${b.status === "DRIVER_ARRIVING" ? `<button class="btn danger" id="navNoShow">${w("noShow")}</button>` : ""}`;
-    $("#navAct")?.addEventListener("click", (e) => busy(e.target, async () => {
+    $("#chatBtn")?.addEventListener("click", () => openChat(b.id, me.id, client, "driver"));
+    if (next) $("#slideSlot").appendChild(slideButton(next[1], async () => {
       if (next[0] === "arriving") b = await rpc("advance_booking", { p_booking_id: b.id, p_status: "DRIVER_ARRIVING" });
       else if (next[0] === "start") { b = await rpc("advance_booking", { p_booking_id: b.id, p_status: "IN_PROGRESS" }); targetMarker?.remove(); targetMarker = null; }
       else if (next[0] === "finish") {
         if (b.payment_method === "ON_BOARD") b = await rpc("complete_onboard_booking", { p_booking_id: b.id });
         else b = (await call("ride-complete", { bookingId: b.id })).booking;
+        stopWatch?.(); overlayMode = "anim";
+        await celebrate(w("done"), b.payment_method === "ON_BOARD" ? w("paidBoard") : w("paidCard"), { kind: "green", amount: euro(b.final_fare_cents ?? b.quoted_fare_cents).replace(/,00/, "") });
         return showDone(b, client);
       }
       await updateRoute(true);
-    }));
+    }, next[0] === "finish" ? "finish" : ""));
     $("#navNoShow")?.addEventListener("click", (e) => { if (confirm(w("noShow") + " ?")) busy(e.target, async () => { await call("booking-cancel", { bookingId: b.id, action: "no_show" }); closeNav(); }); });
   };
 
   navRefresh = async () => {
     const { data } = await sb.from("bookings").select("*").eq("id", id).maybeSingle();
     if (!data || data.driver_user_id !== me.id || ["CANCELLED"].includes(data.status)) { toast(t("s_CANCELLED"), true); return closeNav(); }
-    if (data.status === "COMPLETED") return showDone(data, client);
+    if (data.status === "COMPLETED") { stopWatch?.(); return showDone(data, client); }
     const changed = !b || b.status !== data.status;
     b = data;
     if (changed) await updateRoute(true);
@@ -446,7 +476,9 @@ async function openNav(id) {
   const { data } = await sb.from("bookings").select("*").eq("id", id).maybeSingle();
   if (!data) return closeNav();
   b = data;
-  ({ data: client } = await sb.from("profiles").select("display_name, phone").eq("id", b.client_user_id).maybeSingle());
+  ({ data: client } = await sb.from("profiles").select("display_name, phone, avatar_url, client_rating, client_rating_count").eq("id", b.client_user_id).maybeSingle());
+  stopWatch = watchMessages(b.id, me.id, (n) => { unread = n; const cb = $("#chatBtn"); if (cb) cb.innerHTML = icon("msg") + (n ? `<span class="nb">${n}</span>` : ""); });
+  navStop = () => stopWatch?.();
   startGeo();
   if (map && myPos) meMarker = L.marker([myPos.lat, myPos.lng], { icon: meIcon(), zIndexOffset: 1000 }).addTo(map);
   onPos = (p) => {
@@ -460,7 +492,8 @@ async function openNav(id) {
   if (!layer && map) fit(true);
 }
 
-function closeNav() { overlay.innerHTML = ""; overlayMode = null; onPos = null; navRefresh = null; scheduleRefresh(); go("home"); }
+let navStop = null;
+function closeNav() { navStop?.(); navStop = null; overlay.innerHTML = ""; overlayMode = null; onPos = null; navRefresh = null; scheduleRefresh(); go("home"); }
 
 // ------------------------------------------------------------------ COURSE TERMINÉE
 function showDone(b, client) {
@@ -472,13 +505,25 @@ function showDone(b, client) {
     <div class="card"><div class="kv"><span>${w("farePrice")}</span><strong>${euro(fare)}</strong></div>
       <div class="kv"><span>${w("commission")}</span><span>−${euro(b.commission_cents)}</span></div>
       <div class="kv"><span style="color:var(--text);font-weight:700">${w("yourEarn")}</span><strong>${euro(b.driver_earnings_cents)}</strong></div></div>
-    ${client ? `<div class="card"><div class="person" style="border:0;padding:0"><div class="avatar">${esc(initials(client.display_name))}</div>
-      <div class="grow"><small>${w("client")}</small><strong>${esc(client.display_name)}</strong></div></div></div>` : ""}
+    ${client ? `<div class="card center"><div class="person" style="border:0;padding:0 0 8px;justify-content:center;text-align:left">${avatarHtml(client)}
+      <div><small class="muted">${w("client")}</small><br><strong>${esc(client.display_name)}</strong></div></div>
+      ${b.client_rating ? `<div class="stars-s" style="font-size:24px">${"★".repeat(b.client_rating)}</div>` : `<div class="muted">${w("rateClient")}</div><div class="stars" id="cStars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}">★</button>`).join("")}</div>`}</div>` : ""}
     <button class="btn" id="dNew">${w("newRide")}</button>
+    <a class="btn secondary" href="receipt.html?id=${b.id}">${icon("doc")} ${w("receipt")}</a>
     <button class="btn secondary" id="dDetail">${w("seeDetail")}</button></div></div>`;
+  bindStars($("#cStars"), (n) => rpc("rate_client", { p_booking_id: b.id, p_rating: n }));
   const leave = (v, s) => { overlay.innerHTML = ""; overlayMode = null; scheduleRefresh(); go(v, s); };
   $("#dNew").onclick = () => leave("home");
   $("#dDetail").onclick = () => leave("rides", b.id);
+}
+
+function bindStars(box, save) {
+  if (!box) return;
+  const btns = box.querySelectorAll("button");
+  btns.forEach((btn) => {
+    btn.onmouseenter = () => btns.forEach((x) => x.classList.toggle("on", +x.dataset.n <= +btn.dataset.n));
+    btn.onclick = () => busy(btn, async () => { await save(+btn.dataset.n); btns.forEach((x) => { x.classList.toggle("on", +x.dataset.n <= +btn.dataset.n); x.disabled = true; }); toast(w("thanks")); });
+  });
 }
 
 // ------------------------------------------------------------------ MES COURSES
@@ -515,8 +560,11 @@ async function rideDetail(id) {
       <div class="kv"><span>${w("farePrice")}</span><strong>${euro(b.final_fare_cents ?? b.quoted_fare_cents)}</strong></div>
       <div class="kv"><span>${w("commission")}</span><span>−${euro(b.commission_cents)}</span></div>
       <div class="kv"><span>${w("yourEarn")}</span><strong>${euro(b.driver_earnings_cents)}</strong></div>
-      ${b.driver_rating ? `<div class="kv"><span>★</span><span class="stars-s">${"★".repeat(b.driver_rating)}</span></div>` : ""}</div>`;
+      ${b.driver_rating ? `<div class="kv"><span>★</span><span class="stars-s">${"★".repeat(b.driver_rating)}</span></div>` : ""}</div>
+    ${b.status === "COMPLETED" ? `${b.client_rating ? "" : `<div class="card center"><div class="muted">${w("rateClient")}</div><div class="stars" id="cStars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}">★</button>`).join("")}</div></div>`}
+      <a class="btn secondary" href="receipt.html?id=${b.id}">${icon("doc")} ${w("receipt")}</a>` : ""}`;
   $("#bk").onclick = () => go("rides");
+  bindStars($("#cStars"), (n) => rpc("rate_client", { p_booking_id: b.id, p_rating: n }));
 }
 
 // ------------------------------------------------------------------ REVENUS
@@ -577,7 +625,7 @@ async function profileView() {
   };
   const r = driver.rating;
   app.innerHTML = `<div class="back"><span class="grow">${w("myProfile")}</span><button id="gear" aria-label="${w("settings")}">${icon("settings")}</button></div>
-    <div class="profile-head"><div class="avatar lg" style="margin:0 auto">${esc(initials(me.display_name))}${driver.partner_status === "VALIDATED" ? `<span class="ok">${icon("check")}</span>` : ""}</div>
+    <div class="profile-head"><div style="display:inline-block" id="photoBtn" title="${w("changePhoto")}">${avatarHtml(me, "lg editable", `${driver.partner_status === "VALIDATED" ? `<span class="ok">${icon("check")}</span>` : ""}<span class="cam">${CAM}</span>`)}</div>
       <h2>${esc(me.display_name)}</h2>
       <div class="stars-s">${r ? "★".repeat(Math.round(r)) + "☆".repeat(5 - Math.round(r)) : "☆☆☆☆☆"} <span class="muted">${r ?? "—"} (${count || 0} ${w("ratingN")})</span></div>
       ${driver.partner_status !== "VALIDATED" ? `<div style="margin-top:8px">${partnerBadge(driver.partner_status)}</div>` : ""}</div>
@@ -597,6 +645,7 @@ async function profileView() {
       <label>${t("siret")}</label><input name="siret" inputmode="numeric" maxlength="14" value="${esc(driver.siret)}">
       <button class="btn secondary" type="submit">${t("save")}</button></form>`;
   $("#gear").onclick = () => go("settings");
+  $("#photoBtn").onclick = async () => { const url = await pickAvatar(me.id); if (url) { me.avatar_url = url; render(); } };
   $("#vehRow").onclick = () => go("vehicle");
   app.querySelectorAll("[data-doc]").forEach((el) => el.onclick = () => docSheet(el.dataset.doc, last[el.dataset.doc]));
   $("#meForm").onsubmit = (e) => { e.preventDefault(); busy(e.submitter, async () => {
@@ -668,7 +717,10 @@ async function settingsView() {
       ${row("sound", "Sons", `<input type="checkbox" class="tg" id="sSound" ${soundOn ? "checked" : ""}>`)}
       ${row("card", w("cardPay"), `<span class="end">${driver.stripe_payouts_enabled ? w("cardOn") : w("cardOff")}</span><span class="chev">${icon("chevR")}</span>`, "sStripe")}
       ${row("globe", w("language"), `<span class="end">${lang === "fr" ? "Français" : "English"}</span><span class="chev">${icon("chevR")}</span>`, "sLang")}
-      ${me.role === "ADMIN" ? row("admin", w("admin"), `<span class="chev">${icon("chevR")}</span>`, "sAdmin") : ""}
+      ${row("shield", w("help"), `<span class="chev">${icon("chevR")}</span>`, "sHelp")}
+      ${row("doc", w("terms"), `<span class="chev">${icon("chevR")}</span>`, "sTerms")}
+      ${row("admin", w("privacy"), `<span class="chev">${icon("chevR")}</span>`, "sPriv")}
+      ${me.role === "ADMIN" ? row("settings", w("admin"), `<span class="chev">${icon("chevR")}</span>`, "sAdmin") : ""}
       ${row("logout", `<span class="logout">${w("logout")}</span>`, "", "sOut")}
     </div>`;
   $("#bk").onclick = () => go("profile");
@@ -687,6 +739,9 @@ async function settingsView() {
   $("#sLang").onclick = () => { toggleLang(); location.reload(); };
   $("#sOut").onclick = logout;
   $("#sAdmin")?.addEventListener("click", () => go("admin"));
+  $("#sHelp").onclick = () => { location.href = "legal.html#aide"; };
+  $("#sTerms").onclick = () => { location.href = "legal.html#cgv"; };
+  $("#sPriv").onclick = () => { location.href = "legal.html#confidentialite"; };
   $("#sStripe").onclick = () => busy(null, async () => {
     if (driver.stripe_account_id && !driver.stripe_payouts_enabled) { await call("connect-onboarding", { action: "status" }); await loadAll(); if (driver.stripe_payouts_enabled) return render(); }
     if (driver.stripe_payouts_enabled) { const { url } = await call("connect-onboarding", { action: "dashboard" }); location.href = url; return; }
@@ -700,7 +755,19 @@ async function adminView() {
     sb.from("drivers").select("*, profiles!drivers_user_id_fkey(display_name, email, phone)").order("created_at", { ascending: false }),
     sb.from("bookings").select("*").order("created_at", { ascending: false }).limit(50),
   ]);
-  app.innerHTML = `<h1>${w("admin")}</h1><div class="section-title">${t("drivers")}</div>
+  const co = await getSettings();
+  const f = (k, label, type = "text") => `<label>${label}</label><input name="${k}" type="${type}" value="${esc(co[k] || "")}">`;
+  app.innerHTML = `<h1>${w("admin")}</h1>
+    <details class="card"><summary style="cursor:pointer;font-weight:700">${icon("settings")} ${w("company")}</summary>
+      <p class="muted">${w("companySub")}</p>
+      <form id="coForm">${f("nom", w("cName"))}${f("forme", w("cForm"))}${f("adresse", w("cAddress"))}
+        <div class="row"><div>${f("siret", "SIRET")}</div><div>${f("evtc", w("cEvtc"))}</div></div>
+        <div class="row"><div>${f("email", w("cEmail"), "email")}</div><div>${f("tel", w("cPhone"), "tel")}</div></div>
+        ${f("responsable", w("cBoss"))}${f("mediateur", w("cMediator"))}
+        <label>${w("cVat")}</label><select name="tva"><option value="franchise" ${co.tva !== "assujetti" ? "selected" : ""}>${w("cVatNo")}</option><option value="assujetti" ${co.tva === "assujetti" ? "selected" : ""}>${w("cVatYes")}</option></select>
+        <label>${w("cCancel")}</label><textarea name="annulation" rows="3">${esc(co.annulation || "")}</textarea>
+        <button class="btn" type="submit">${t("save")}</button></form></details>
+    <div class="section-title">${t("drivers")}</div>
     <div class="card" style="padding:4px 16px">${(drivers || []).map((d) => `<div class="list-row" data-d="${d.user_id}"><div class="avatar">${esc(initials(d.profiles?.display_name))}</div>
       <div class="body"><div>${esc(d.profiles?.display_name)}</div><small>${esc(d.profiles?.email)}${d.profiles?.phone ? " · " + esc(d.profiles.phone) : ""}</small></div>
       ${partnerBadge(d.partner_status)}<span class="chev">${icon("chevR")}</span></div>`).join("") || `<p class="list-empty">—</p>`}</div>
@@ -711,6 +778,11 @@ async function adminView() {
       <div class="kv"><span>${esc(t("v_" + b.vehicle_type))} · ${b.payment_method === "ON_BOARD" ? t("onBoard") : t("card")} · ${esc(t("p_" + b.payment_status))}</span><strong>${euro(b.final_fare_cents ?? b.quoted_fare_cents)}</strong></div>
       ${["REQUESTED", ...RUNNING].includes(b.status) ? `<button class="btn small danger" data-cancel="${b.id}">${t("cancelRide")}</button>` : ""}</div>`).join("") || `<p class="list-empty">${t("noHistory")}</p>`}`;
   app.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => go("admin", b.dataset.d));
+  $("#coForm").onsubmit = (e) => { e.preventDefault(); busy(e.submitter, async () => {
+    const doc = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, String(v).trim()]));
+    const { error } = await sb.from("app_settings").update({ doc, updated_at: new Date().toISOString() }).eq("id", 1);
+    if (error) throw error; toast(t("saved"));
+  }); };
   app.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = () => { if (confirm(t("cancelConfirm"))) busy(b, async () => { await call("booking-cancel", { bookingId: b.dataset.cancel, action: "cancel" }); render(); }); });
 }
 
