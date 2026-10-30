@@ -73,6 +73,21 @@ export function watchTable(table, load, cb, filter) {
   return ch;
 }
 
+/* ---------- document par-dessus l'appli (facture, CGV…) : pas de rechargement ni de nouveau code ---------- */
+export function openSheet(url) {
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;inset:0;z-index:60;background:#060a13;padding-top:env(safe-area-inset-top,0px);display:flex";
+  const fr = document.createElement("iframe");
+  fr.src = url; fr.title = "Document"; fr.style.cssText = "flex:1;width:100%;border:0;background:#060a13";
+  box.appendChild(fr); document.body.appendChild(box);
+  const prev = document.documentElement.style.overflow; document.documentElement.style.overflow = "hidden";
+  const close = e => {
+    if (e.origin !== location.origin || e.data !== "close-sheet") return;
+    box.remove(); document.documentElement.style.overflow = prev; window.removeEventListener("message", close);
+  };
+  window.addEventListener("message", close);
+}
+
 /* ---------- petits outils ---------- */
 export const $ = s => document.querySelector(s);
 export const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Facture · Transporteur</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0d0d0c">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root{--ink:#14161c;--muted:#6b7180;--line:#e3e5ea;--accent:#16264a}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#eef0f4;color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .bar{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;background:#060a13;color:#f2f4f8}
+  .bar a{color:#9db4ea;text-decoration:none;font-weight:600}
+  .bar button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:10px 16px;background:#f2f4f8;color:#0a1222;cursor:pointer}
+  .page{max-width:800px;margin:16px auto 40px;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(10,18,34,.12);padding:36px 34px}
+  .top{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .em b{font-size:17px}
+  .em p,.cl p{margin:2px 0;color:var(--muted)}
+  h1{margin:0;font-size:30px;letter-spacing:.06em;color:var(--accent)}
+  .meta{text-align:right}
+  .meta p{margin:2px 0}
+  .cl{margin:26px 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;max-width:360px}
+  .cl .k{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:4px}
+  [contenteditable]{outline:none;border-radius:4px}
+  [contenteditable]:focus{background:#f3f6ff}
+  .edit-hint{font-size:12px;color:var(--muted);margin-top:6px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);text-align:left;border-bottom:2px solid var(--ink);padding:8px 6px}
+  td{padding:10px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.r,th.r{text-align:right;white-space:nowrap}
+  .sub{color:var(--muted);font-size:13px}
+  .tot{margin-left:auto;margin-top:14px;width:300px;max-width:100%}
+  .tot div{display:flex;justify-content:space-between;padding:6px 6px}
+  .tot .big{border-top:2px solid var(--ink);font-weight:800;font-size:18px;margin-top:4px;padding-top:10px}
+  .notes{margin-top:26px;font-size:13px;color:var(--muted)}
+  .notes p{margin:4px 0}
+  .paid{display:inline-block;margin-top:10px;padding:4px 10px;border-radius:999px;background:#e6f7ee;color:#137a45;font-weight:700;font-size:13px}
+  .msg{max-width:560px;margin:40px auto;background:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 10px 30px rgba(10,18,34,.12)}
+  @media (max-width:560px){.page{padding:22px 16px;margin:0;border-radius:0}.meta{text-align:left}h1{font-size:24px}}
+  @media print{
+    html,body{background:#fff}
+    .bar,.edit-hint{display:none!important}
+    .page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}
+    @page{size:A4;margin:16mm}
+  }
+</style>
+</head>
+<body>
+<div class="bar"><a href="./" id="back">← Retour</a><button id="print" hidden>Télécharger en PDF</button></div>
+<main id="app"><div class="msg">Chargement de la facture…</div></main>
+
+<script>
+// Ouvert dans l'appli (fenêtre par-dessus) : « Retour » referme la fenêtre sans recharger l'appli
+document.getElementById("back").addEventListener("click", e => {
+  e.preventDefault();
+  if (window.parent !== window) parent.postMessage("close-sheet", location.origin);
+  else if (history.length > 1) history.back(); else location.href = "./";
+});
+</script>
+<script type="module">
+import { sb, esc, eur } from "./shared.js";
+
+const $ = s => document.querySelector(s);
+const id = new URLSearchParams(location.search).get("id") || "";
+const fr = iso => { if (!iso) return ""; const [y, m, d] = String(iso).split("-"); return d && m && y ? `${d}/${m}/${y}` : iso; };
+const line = v => v ? `<p>${esc(v)}</p>` : "";
+
+function view(f) {
+  const e = f.emetteur || {};
+  const assujetti = e.tva === "assujetti";
+  const ttc = Number(f.prix) || 0, ht = assujetti ? Math.round(ttc / 1.1 * 100) / 100 : ttc, tva = Math.round((ttc - ht) * 100) / 100;
+  const lignes = Array.isArray(f.lignes) && f.lignes.length ? f.lignes : null;
+  const nom = e.nom || f.chauffeur || "";
+  document.title = `Facture ${f.numero} · ${nom}`;
+  $("#app").innerHTML = `<article class="page">
+    <div class="top">
+      <div class="em">
+        <b>${esc(nom)}</b>
+        <p>${esc(e.forme || "Entrepreneur individuel (EI)")}</p>
+        ${line(e.adresse)}
+        <p>SIRET : ${esc(e.siret)}</p>
+        ${e.tvaNum && assujetti ? `<p>N° TVA : ${esc(e.tvaNum)}</p>` : ""}
+        ${line(e.carteVtc ? "Carte professionnelle VTC n° " + e.carteVtc : "")}
+        ${line(e.evtc ? "Registre VTC (EVTC) n° " + e.evtc : "")}
+        ${line([e.tel, e.email].filter(Boolean).join(" · "))}
+      </div>
+      <div class="meta">
+        <h1>FACTURE</h1>
+        <p><b>N° ${esc(f.numero)}</b></p>
+        <p>Date d'émission : ${fr(f.date)}</p>
+        <p>Date de la course : ${fr(f.jour)}${f.heure ? " à " + esc(f.heure) : ""}</p>
+      </div>
+    </div>
+    <div class="cl">
+      <div class="k">Facturé à</div>
+      <div contenteditable="true" spellcheck="false" id="client"><b>${esc(f.client)}</b><br></div>
+      <p class="edit-hint">Touchez pour ajouter une société ou une adresse avant de télécharger.</p>
+    </div>
+    <table>
+      <thead><tr><th>Désignation</th><th class="r">Montant${assujetti ? " TTC" : ""}</th></tr></thead>
+      <tbody>
+        <tr><td><b>Transport de personnes en VTC${f.categorie ? " · " + esc(f.categorie) : ""}</b>
+          <div class="sub">${esc(f.depart)} → ${esc(f.arrivee)}${f.km ? " · " + String(f.km).replace(".", ",") + " km" : ""}</div>
+          ${f.chauffeur ? `<div class="sub">Chauffeur : ${esc(f.chauffeur)}</div>` : ""}</td>
+          <td class="r">${lignes ? "" : eur(ttc)}</td></tr>
+        ${lignes ? lignes.map(l => `<tr><td class="sub">${esc(l.label)}</td><td class="r">${l.montant < 0 ? "− " + eur(-l.montant) : eur(l.montant)}</td></tr>`).join("") : ""}
+      </tbody>
+    </table>
+    <div class="tot">
+      ${assujetti ? `<div><span>Total HT</span><span>${eur(ht)}</span></div><div><span>TVA 10 %</span><span>${eur(tva)}</span></div>` : ""}
+      <div class="big"><span>Total${assujetti ? " TTC" : ""}</span><span>${eur(ttc)}</span></div>
+      ${f.paye ? `<span class="paid">Payée${f.paiement === "cb" ? " par carte" : f.paiement === "especes" ? " en espèces" : ""}</span>` : ""}
+    </div>
+    <div class="notes">
+      ${assujetti ? "" : `<p><b>TVA non applicable, article 293 B du Code général des impôts.</b></p>`}
+      <p>Mode de paiement : ${f.paiement === "cb" ? "carte bancaire" : "espèces"}${f.paye ? " · réglée" : " · à régler à réception"}.</p>
+      <p>Clients professionnels : en cas de retard de paiement, pénalités au taux d'intérêt légal multiplié par trois et indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 du Code de commerce). Pas d'escompte pour paiement anticipé.</p>
+    </div>
+  </article>`;
+  $("#print").hidden = false;
+}
+
+$("#print").addEventListener("click", () => window.print());
+(async () => {
+  const fail = t => { $("#app").innerHTML = `<div class="msg">${esc(t)}</div>`; };
+  if (!id) return fail("Lien de facture incomplet.");
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return fail("Ouvrez la facture depuis l'appli, après vous être connecté.");
+  const { data, error } = await sb.rpc("facture_course", { bid: id });
+  if (error) return fail(error.message || "Facture indisponible pour le moment.");
+  view(data);
+})();
+</script>
+</body>
+</html>
