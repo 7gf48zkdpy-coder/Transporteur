@@ -1,1 +1,23 @@
-.netlify
+node_modules/
+dist/
+.next/
+.expo/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Builds natifs générés par Expo (prebuild) et clés de signature
+ios/
+android/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+
+# Supabase CLI
+supabase/.branches
+supabase/.temp
+
+# Images générées par scripts/build-assets.mjs (npm install)
+*.png
