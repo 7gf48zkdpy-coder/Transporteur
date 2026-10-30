@@ -54,7 +54,7 @@ window.__css = new Promise(function (ok) {
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, configured, $, esc, todayISO, nowHM, fmtDate, eur, ref, toast, copy, STATUS, LOGO, IC,
   searchPlaces, reverse, route, getPosition, createMap, markerEl, setRouteLine, fitTo, DEFAULT_SETTINGS, notConfiguredScreen,
-  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel, devis, populaires, isEco, ECO_BADGE } from "./shared.js";
+  pushStatus, enablePush, isStandalone, revolutLink, driversLive, carLabel, devis, populaires, isEco, ECO_BADGE, openSheet } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">VTC · chauffeur privé</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -186,6 +186,7 @@ function signupView() {
     <label class="f" for="s-nom">Nom<input id="s-nom" autocomplete="family-name" value="${esc(m.nom || "")}"></label></div>
     <label class="f" for="s-tel">Téléphone<input id="s-tel" type="tel" autocomplete="tel" placeholder="06 12 34 56 78" value="${esc(m.tel || "")}"></label>
     ${S.err ? `<div class="msg err" role="alert">${esc(S.err)}</div>` : ""}
+    ${S.editing ? "" : `<p class="small muted">En continuant, vous acceptez les <a href="legal.html#cgv" data-doc style="color:inherit">conditions générales de vente</a> et la <a href="legal.html#confidentialite" data-doc style="color:inherit">politique de confidentialité</a>.</p>`}
     <button class="big" type="submit">${S.editing ? "Enregistrer" : "Créer mon compte"}</button>
     ${S.editing ? `<button type="button" class="ghost" id="s-cancel">Annuler</button>` : ""}
   </form>`;
@@ -201,6 +202,7 @@ function bindSignup() {
     catch { S.err = "Enregistrement impossible. Vérifiez votre connexion et réessayez."; render(); }
   });
   $("#s-cancel")?.addEventListener("click", () => { S.editing = false; S.err = ""; render(); });
+  bindDocs();
 }
 
 function ibanBlock() {
@@ -263,9 +265,11 @@ function mainView() {
   <button class="big" id="send" ${!q || S.sending || blocked ? "disabled" : ""}>${S.sending ? "Envoi…" : q ? "Réserver · " + eur(q.total) : "Indiquez les deux adresses"}</button>
   <div class="gift"><span class="n">${Number(SUP().franchiseMin ?? 6)} min</span><span>d'attente <b>offertes</b> à la prise en charge</span></div>
   ${past.length ? `<details class="more"><summary>Historique (${past.length})</summary><div class="body stack">${past.map(rideCard).join("")}</div></details>` : ""}
-  <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>`;
+  <details class="more"><summary>Mon compte</summary><div class="body stack"><div class="facts"><span class="fact">${esc(S.me.prenom)} <b>${esc(S.me.nom)}</b></span><span class="fact mono">${esc(S.me.tel)}</span></div><div><button class="ghost sm" id="edit">Modifier mes informations</button></div></div></details>
+  ${legalLinks()}`;
 }
 
+const legalLinks = () => `<p class="small muted center" style="margin-top:4px"><a href="legal.html#cgv" data-doc style="color:inherit">CGV</a> · <a href="legal.html#confidentialite" data-doc style="color:inherit">Confidentialité</a> · <a href="legal.html#mentions" data-doc style="color:inherit">Mentions légales</a></p>`;
 const catName = () => S.q?.categorieNom || ({ berline: "Berline", suv: "SUV", premium: "Premium", van: "Van" }[S.form.categorie] || "");
 // Le devis : catégories, prix détaillé, conditions — tout vient du serveur
 function quotePanel(q, m) {
@@ -329,10 +333,14 @@ function pushCard() {
       : `<button class="big" id="push-on">Activer les notifications</button>`}
   </section>`;
 }
+// Paiement par carte avec Stripe (confirmé automatiquement) pour les courses du compte principal, sinon Revolut
+const stripeOn = r => !!(S.settings?.stripe?.actif && r.driverId && r.driverId === S.settings.stripe.chauffeur);
 function payCardBtn(r) {
   const link = revolutLink(revtagOf(r), r.prix);
-  if (r.paiement !== "cb" || r.statut === "annulee" || r.paye) return "";
-  if (r.statut === "en_attente") return revolutLink(S.settings.revtag) ? `<p class="small muted">Le bouton « Payer par carte » apparaîtra dès qu'un chauffeur aura accepté.</p>` : "";
+  if (r.paiement !== "cb" || r.statut === "annulee") return "";
+  if (r.paye) return `<p class="small" style="color:var(--ok);font-weight:600">Course payée${r.payeVia === "carte" ? " par carte" : ""} ✅</p>`;
+  if (r.statut === "en_attente") return revolutLink(S.settings.revtag) || S.settings?.stripe?.actif ? `<p class="small muted">Le bouton « Payer par carte » apparaîtra dès qu'un chauffeur aura accepté.</p>` : "";
+  if (stripeOn(r)) return `<button class="big" data-stripe="${r.id}">Payer ${r.prix ? eur(r.prix) + " " : ""}par carte ou Apple Pay</button>`;
   if (!link) return "";
   return `<a class="navbtn" style="background:var(--btn);color:var(--btn-ink);border-color:var(--btn)" href="${link}" target="_blank" rel="noopener">Payer ${r.prix ? eur(r.prix) + " " : ""}par carte (Revolut)</a>`;
 }
@@ -348,6 +356,7 @@ function rideCard(r) {
       : r.phase === "approche" ? `<div class="msg ok"><b>${esc(r.chauffeur?.prenom || "Votre chauffeur")} est en route.</b> Suivez sa voiture sur la carte.</div>` : "") : ""}
     ${r.statut === "confirmee" || r.statut === "en_attente" ? `<button class="ghost sm" data-share="${r.id}">Partager le suivi avec un proche</button>` : ""}
     ${payCardBtn(r)}
+    ${r.statut === "terminee" ? `<button class="ghost sm" data-facture="${r.id}">Ma facture</button>` : ""}
     ${r.statut === "en_attente" ? `<div><button class="link" data-cancel="${r.id}">Annuler ma demande</button></div>` : ""}
     <p class="muted small mono">Réf. ${esc(r.ref)}</p>
   </article>`;
@@ -389,8 +398,36 @@ function bindAC(key) {
   input.addEventListener("focus", () => { if (!input.value.trim()) input.dispatchEvent(new Event("input")); });
   input.addEventListener("blur", () => setTimeout(() => list.hidden = true, 200));
 }
+// Factures et pages légales : ouvertes par-dessus l'appli (pas besoin de retaper le code en revenant)
+function bindDocs() {
+  document.querySelectorAll("[data-doc]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); openSheet(a.getAttribute("href")); }));
+}
+async function callPaiement(action, booking_id) {
+  const { data, error } = await sb.functions.invoke("paiement", { body: { action, booking_id, origin: location.origin + location.pathname } });
+  if (error) { let m = ""; try { m = (await error.context.json()).error; } catch { } throw new Error(m || "Paiement indisponible. Vérifiez votre connexion."); }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+// Retour de la page de paiement Stripe : on vérifie et on enregistre le paiement
+const verified = new Set();
+async function checkPayments(rows) {
+  const back = new URLSearchParams(location.search).get("paye");
+  if (back) history.replaceState(null, "", location.pathname);
+  for (const r of rows) {
+    if (r.paye || !r.stripeSession || verified.has(r.id)) continue;
+    verified.add(r.id);
+    try { const v = await callPaiement("verify", r.id); if (v?.paye && r.id === back) toast("Paiement reçu, merci ✅"); } catch { }
+  }
+}
 function bindMain() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  bindDocs();
+  on("[data-facture]", "click", e => openSheet("facture.html?id=" + encodeURIComponent(e.currentTarget.dataset.facture)));
+  on("[data-stripe]", "click", async e => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = "Ouverture du paiement…";
+    try { const { url } = await callPaiement("create", b.dataset.stripe); location.href = url; }
+    catch (err) { toast(err.message); b.disabled = false; render(); }
+  });
   bindAC("pickup"); bindAC("dropoff");
   $("#mypos")?.addEventListener("click", async () => {
     try { toast("Localisation…"); const p = await getPosition(); S.form.pickup = await reverse(p.lat, p.lng); S.form.pickupText = S.form.pickup.label; afterPlaces(); }
@@ -483,7 +520,7 @@ else {
     watchTable("bookings", async () => {
       const { data, error } = await sb.from("bookings").select("*").eq("client_uid", S.uid).order("created_at", { ascending: false });
       if (error) throw error; return data.map(rowToBooking);
-    }, rows => { S.rides = rows; if (!typing()) render(); }, "client_uid=eq." + S.uid);
+    }, rows => { S.rides = rows; if (!typing()) render(); checkPayments(rows); }, "client_uid=eq." + S.uid);
   }
   (async () => {
     const { data: { session } } = await sb.auth.getSession();
