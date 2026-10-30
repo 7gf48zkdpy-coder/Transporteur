@@ -21,7 +21,7 @@
 <div class="sheet"><div class="wrap"><main id="app" class="stack"><div class="loading">Chargement du suivi…</div></main></div></div>
 
 <script type="module">
-import { sb, $, esc, fmtDate, LOGO, route, createMap, markerEl, setRouteLine, fitTo } from "./shared.js";
+import { sb, $, esc, fmtDate, LOGO, route, createMap, markerEl, setRouteLine, fitTo, isEco, ECO_BADGE } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Suivi de course</div></div>`;
 const token = new URLSearchParams(location.search).get("t") || "";
@@ -51,7 +51,7 @@ function view() {
     <h2>${st[0]}</h2>
     ${st[1] ? `<p class="muted">${st[1]}</p>` : ""}
     ${showEta ? `<div class="eta"><b>${eta.min} min</b><span>${T.phase === "abord" ? "avant l'arrivée" : "avant la prise en charge"} · ${eta.km.toLocaleString("fr-FR")} km</span></div>` : ""}
-    ${T.chauffeur && T.statut === "confirmee" ? `<div class="carline"><div><b>${esc(T.chauffeur.prenom)}</b>${T.chauffeur.modele ? " · " + esc(T.chauffeur.modele) : ""}</div>${T.chauffeur.plaque ? `<span class="plate">${esc(T.chauffeur.plaque)}</span>` : ""}</div>` : ""}
+    ${T.chauffeur && T.statut === "confirmee" ? `<div class="carline"><div><b>${esc(T.chauffeur.prenom)}</b>${T.chauffeur.modele ? " · " + esc(T.chauffeur.modele) : ""}${isEco(T.chauffeur) ? " " + ECO_BADGE : ""}</div>${T.chauffeur.plaque ? `<span class="plate">${esc(T.chauffeur.plaque)}</span>` : ""}</div>` : ""}
     <div class="route"><span class="pin"></span><span>${esc(T.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(T.arrivee?.label)}</span></div>
     <p class="muted small">Mise à jour automatique toutes les 10 secondes.</p>
   </section>`;
