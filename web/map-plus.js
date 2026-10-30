@@ -22,8 +22,11 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("DOMContentLoaded", function () { toWaze(document); });
 
+  // Langue : français par défaut (l'anglais reste disponible dans les paramètres).
+  try { if (!localStorage.getItem("lang")) localStorage.setItem("lang", "fr"); } catch (e) { /* stockage indisponible */ }
+
   var css = document.createElement("style");
-  css.textContent = ".leaflet-container{background:#0a1431!important}" +
+  css.textContent = ".leaflet-container{background:#0f1b2e!important}" +
     ".leaflet-control-attribution{background:rgba(10,20,49,.7)!important;color:#6f82b5!important;font-size:9px!important}" +
     ".leaflet-control-attribution a{color:#8597c7!important}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}";
   document.head.appendChild(css);
@@ -35,8 +38,8 @@
   // Carte vectorielle bleu nuit dessinée sur mesure (MapLibre + tuiles OpenFreeMap, gratuites, sans clé).
   // Si le téléphone ne gère pas WebGL ou si MapLibre ne charge pas, repli sur le fond sombre Esri.
   var ATTR = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
-  var C = { bg: "#0a1431", park: "#0c1a3d", water: "#050c22", building: "#0f1d45", minor: "#16264f", mid: "#1d3263",
-            major: "#24407c", motor: "#2c4c94", label: "#8597c7", place: "#c7d3f2", halo: "#0a1431", waterLabel: "#4a64a6" };
+  var C = { bg: "#0f1b2e", park: "#112235", water: "#0c2550", building: "#15233a", minor: "#1d2b40", mid: "#25354d",
+            major: "#2e4060", motor: "#4a5b78", label: "#7e8ba5", place: "#c9d1e0", halo: "#0f1b2e", waterLabel: "#5671a8" };
   var Z = function (a, b) { return ["interpolate", ["exponential", 1.5], ["zoom"], 10, a, 18, b]; };
   var NAME = ["coalesce", ["get", "name:fr"], ["get", "name"]];
   var cls = function (list) { return ["match", ["get", "class"], list, true, false]; };
