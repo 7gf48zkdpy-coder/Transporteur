@@ -1,5 +1,5 @@
 // Transporteur VTC — carte façon maquette (chargé juste après Leaflet, avant l'appli).
-//  1. Fond de carte bleu nuit (Esri Dark Gray, sans clé, teinté dans ui.css) + noms de rues nets sur un calque à part.
+//  1. Carte vectorielle bleu nuit comme sur les maquettes (MapLibre + OpenFreeMap, sans clé).
 //  2. Le chauffeur est une voiture vue de dessus (plus de flèche), orientée dans le sens de la marche.
 //  3. Les liens d'itinéraire ouvrent Waze au lieu de Google Maps.
 (function () {
@@ -22,30 +22,68 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("DOMContentLoaded", function () { toWaze(document); });
 
+  var css = document.createElement("style");
+  css.textContent = ".leaflet-container{background:#0a1431!important}" +
+    ".leaflet-control-attribution{background:rgba(10,20,49,.7)!important;color:#6f82b5!important;font-size:9px!important}" +
+    ".leaflet-control-attribution a{color:#8597c7!important}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}";
+  document.head.appendChild(css);
+
   var L = window.L;
   if (!L) return;
 
   // ---------------------------------------------------------------- 1. fond de carte
-  var ATTR = 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap';
-  var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/";
+  // Carte vectorielle bleu nuit dessinée sur mesure (MapLibre + tuiles OpenFreeMap, gratuites, sans clé).
+  // Si le téléphone ne gère pas WebGL ou si MapLibre ne charge pas, repli sur le fond sombre Esri.
+  var ATTR = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
+  var C = { bg: "#0a1431", park: "#0c1a3d", water: "#050c22", building: "#0f1d45", minor: "#16264f", mid: "#1d3263",
+            major: "#24407c", motor: "#2c4c94", label: "#8597c7", place: "#c7d3f2", halo: "#0a1431", waterLabel: "#4a64a6" };
+  var Z = function (a, b) { return ["interpolate", ["exponential", 1.5], ["zoom"], 10, a, 18, b]; };
+  var NAME = ["coalesce", ["get", "name:fr"], ["get", "name"]];
+  var cls = function (list) { return ["match", ["get", "class"], list, true, false]; };
+  var STYLE = {
+    version: 8,
+    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    sources: { omt: { type: "vector", url: "https://tiles.openfreemap.org/planet" } },
+    layers: [
+      { id: "bg", type: "background", paint: { "background-color": C.bg } },
+      { id: "park", type: "fill", source: "omt", "source-layer": "park", paint: { "fill-color": C.park } },
+      { id: "wood", type: "fill", source: "omt", "source-layer": "landcover", filter: cls(["wood", "grass"]), paint: { "fill-color": C.park, "fill-opacity": .7 } },
+      { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": C.water } },
+      { id: "building", type: "fill", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-color": C.building, "fill-opacity": .8 } },
+      { id: "road-minor", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["minor", "service"]), minzoom: 12,
+        layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.minor, "line-width": Z(.4, 9) } },
+      { id: "road-mid", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["tertiary", "secondary"]),
+        layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.mid, "line-width": Z(.8, 13) } },
+      { id: "road-major", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["primary", "trunk"]),
+        layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.major, "line-width": Z(1.2, 16) } },
+      { id: "road-motor", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["motorway"]),
+        layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.motor, "line-width": Z(1.4, 18) } },
+      { id: "road-name", type: "symbol", source: "omt", "source-layer": "transportation_name", minzoom: 14,
+        layout: { "symbol-placement": "line", "text-field": NAME, "text-font": ["Noto Sans Regular"], "text-size": 11 },
+        paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 1.4 } },
+      { id: "water-name", type: "symbol", source: "omt", "source-layer": "water_name",
+        layout: { "text-field": NAME, "text-font": ["Noto Sans Italic"], "text-size": 12 },
+        paint: { "text-color": C.waterLabel, "text-halo-color": C.halo, "text-halo-width": 1 } },
+      { id: "place-small", type: "symbol", source: "omt", "source-layer": "place", filter: cls(["suburb", "neighbourhood", "quarter", "village", "hamlet"]), minzoom: 11,
+        layout: { "text-field": NAME, "text-font": ["Noto Sans Regular"], "text-size": 12 },
+        paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 1.4 } },
+      { id: "place-town", type: "symbol", source: "omt", "source-layer": "place", filter: cls(["town", "city"]),
+        layout: { "text-field": NAME, "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 8, 12, 14, 17] },
+        paint: { "text-color": C.place, "text-halo-color": C.halo, "text-halo-width": 1.6 } }
+    ]
+  };
+  function webgl() {
+    try { var c = document.createElement("canvas"); return !!(window.WebGLRenderingContext && (c.getContext("webgl2") || c.getContext("webgl"))); }
+    catch (e) { return false; }
+  }
   var tileLayer = L.tileLayer;
   L.tileLayer = function (url, opts) {
     if (typeof url !== "string" || url.indexOf("tile.openstreetmap.org") === -1) return tileLayer.apply(this, arguments);
-    var base = tileLayer(ESRI + "World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 20, maxNativeZoom: 16, className: "tiles-base", attribution: ATTR });
-    var labels = null;
-    base.on("add", function () {
-      var map = base._map;
-      if (!map.getPane("labels")) {
-        var pane = map.createPane("labels");
-        pane.style.zIndex = 450; // au-dessus des itinéraires, sous les marqueurs
-        pane.style.pointerEvents = "none";
-      }
-      labels = tileLayer(ESRI + "World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 20, maxNativeZoom: 16, className: "tiles-labels", pane: "labels" }).addTo(map);
-    });
-    base.on("remove", function () { if (labels) labels.remove(); });
-    return base;
+    if (L.maplibreGL && window.maplibregl && webgl()) {
+      try { return L.maplibreGL({ style: STYLE, attribution: ATTR, attributionControl: false }); } catch (e) { /* repli */ }
+    }
+    return tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 20, maxNativeZoom: 16, attribution: "Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap" });
   };
 
   // ---------------------------------------------------------------- 2. voiture vue de dessus
