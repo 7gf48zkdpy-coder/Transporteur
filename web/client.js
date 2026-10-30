@@ -1,26 +1,51 @@
 // Transporteur VTC — appli client (même style que l'espace chauffeur)
 import { sb, isRecovery, lang, t, toggleLang, $, esc, euro, fmtDate, toast, busy, call, rpc, errText, statusBadge, addressField, reverseGeocode,
   makeMap, pinIcon, meIcon, labelIcon, routeLayer, getRoute, fmtDist, initials, icon, hideSplash, currentProfile, renderAuth, VEHICLE_ICON } from "./core.js";
+import { CAM, avatarHtml, pickAvatar, ratingLine, celebrate, openChat, watchMessages, registerSW, legalLinks } from "./ui.js";
 
 const W = {
   fr: { home: "Réserver", rides: "Courses", profile: "Profil", whereTo: "Où allez-vous ?", tagline: "Votre chauffeur privé", logout: "Se déconnecter",
     driverComing: "Votre chauffeur arrive", arrivalIn: "Arrivée dans", onTheWay: "En route vers votre destination", driver: "Chauffeur",
     done: "Course terminée", paidCard: "Paiement effectué", paidBoard: "À régler au chauffeur", rate: "Notez votre chauffeur", newRide: "Réserver une nouvelle course",
-    myRides: "Mes courses", language: "Langue", info: "Mes informations", driverSpace: "Espace chauffeur", pickup: "Prise en charge", destination: "Destination" },
+    myRides: "Mes courses", language: "Langue", info: "Mes informations", driverSpace: "Espace chauffeur", pickup: "Prise en charge", destination: "Destination",
+    found: "Chauffeur trouvé !", isComing: "arrive", enRoute: "Votre chauffeur est en route", goodTrip: "Bon voyage !", messages: "Messages", receipt: "Reçu (PDF)",
+    home2: "Domicile", work: "Travail", favorites: "Adresses favorites", favHint: "Pour réserver en un geste depuis l'accueil.", changePhoto: "Changer la photo", help: "Aide et support" },
   en: { home: "Book", rides: "Rides", profile: "Profile", whereTo: "Where to?", tagline: "Your private driver", logout: "Log out",
     driverComing: "Your driver is coming", arrivalIn: "Arrival in", onTheWay: "On the way to your destination", driver: "Driver",
     done: "Ride completed", paidCard: "Payment received", paidBoard: "Pay the driver", rate: "Rate your driver", newRide: "Book a new ride",
-    myRides: "My rides", language: "Language", info: "My information", driverSpace: "Driver space", pickup: "Pickup", destination: "Destination" },
+    myRides: "My rides", language: "Language", info: "My information", driverSpace: "Driver space", pickup: "Pickup", destination: "Destination",
+    found: "Driver found!", isComing: "is coming", enRoute: "Your driver is on the way", goodTrip: "Have a nice trip!", messages: "Messages", receipt: "Receipt (PDF)",
+    home2: "Home", work: "Work", favorites: "Favourite addresses", favHint: "Book in one tap from the home screen.", changePhoto: "Change photo", help: "Help & support" },
 };
 const w = (k) => W[lang]?.[k] ?? W.fr[k] ?? t(k);
 const short = (label) => String(label || "").split(",")[0].trim();
+const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+const favs = () => store.get("favPlaces", {});
+function rememberPlace(p) {
+  if (!p?.label) return;
+  const list = store.get("recentPlaces", []).filter((x) => x.label !== p.label);
+  list.unshift({ label: p.label, lat: p.lat, lng: p.lng, postcode: p.postcode });
+  store.set("recentPlaces", list.slice(0, 6));
+}
+function placeChips(target) {
+  const f = favs(), rec = store.get("recentPlaces", []);
+  const items = [...(f.home ? [["home", icon("home") + " " + w("home2"), f.home]] : []), ...(f.work ? [["work", icon("rides") + " " + w("work"), f.work]] : []),
+    ...rec.filter((r) => r.label !== f.home?.label && r.label !== f.work?.label).slice(0, 4).map((r, i) => ["r" + i, icon("clock") + " " + esc(short(r.label)), r])];
+  if (!items.length) return "";
+  return `<div class="chips" data-chips="${target}">${items.map(([k, label]) => `<button type="button" class="chip" data-k="${k}">${label}</button>`).join("")}</div>`;
+}
+function chipPlace(k) {
+  const f = favs(), rec = store.get("recentPlaces", []).filter((r) => r.label !== f.home?.label && r.label !== f.work?.label);
+  return k === "home" ? f.home : k === "work" ? f.work : rec[+k.slice(1)];
+}
 
 const app = $("#app"), top = $("#top"), tabbar = $("#tabbar"), overlay = $("#overlay");
 const ACTIVE = ["REQUESTED", "ACCEPTED", "DRIVER_ARRIVING", "IN_PROGRESS"];
-let recoveryDone = false, me = null, channel = null, pollTimer = null, view = "home";
+let recoveryDone = false, me = null, channel = null, pollTimer = null, view = "home", stopMsg = null;
 const form = { pickup: null, destination: null, when: "now", at: "", passengers: 1, notes: "", quotes: null, vehicle: null, pay: "ON_BOARD", info: null };
 
 function cleanup() {
+  stopMsg?.(); stopMsg = null;
   if (channel) { sb.removeChannel(channel); channel = null; }
   clearInterval(pollTimer); pollTimer = null;
 }
@@ -38,6 +63,7 @@ function drawTabbar() {
 }
 
 async function start() {
+  registerSW();
   cleanup();
   me = await currentProfile();
   hideSplash();
@@ -74,8 +100,10 @@ function bookingForm() {
       <label>${t("pickup")}</label>
       <div><input id="pickup" placeholder="Gare de Lyon, 12 rue…" autocomplete="off" value="${esc(form.pickup?.label || "")}"></div>
       <button class="link" id="locBtn" style="margin-top:8px;display:inline-flex;gap:6px;align-items:center">${icon("locate")} ${t("myPosition")}</button>
+      ${placeChips("pickup")}
       <label>${t("destination")}</label>
       <div><input id="dest" placeholder="Aéroport Charles de Gaulle…" autocomplete="off" value="${esc(form.destination?.label || "")}"></div>
+      ${placeChips("destination")}
       <label>${t("when")}</label>
       <div class="seg" id="whenSeg"><button data-w="now" class="${form.when === "now" ? "on" : ""}">${t("now")}</button><button data-w="later" class="${form.when === "later" ? "on" : ""}">${t("later")}</button></div>
       <input id="at" type="datetime-local" class="${form.when === "later" ? "" : "hidden"}" style="margin-top:8px" value="${esc(form.at)}">
@@ -86,7 +114,7 @@ function bookingForm() {
       <button class="btn" id="quoteBtn">${t("seePrices")}</button>
     </div>
     <div id="quotes"></div>
-    <p class="center muted" style="margin-top:20px"><a href="chauffeur.html">${w("driverSpace")}</a></p>`;
+    <p class="center muted" style="margin-top:20px"><a href="chauffeur.html">${w("driverSpace")}</a></p>${legalLinks()}`;
 
   formMap = makeMap($("#bkMap")); formLayer = null; formMarks = [];
   const drawFormRoute = async () => {
@@ -101,6 +129,12 @@ function bookingForm() {
   drawFormRoute();
 
   const pickupIn = $("#pickup"), destIn = $("#dest");
+  app.querySelectorAll("[data-chips] [data-k]").forEach((b) => b.onclick = () => {
+    const p = chipPlace(b.dataset.k); if (!p) return;
+    const target = b.closest("[data-chips]").dataset.chips;
+    form[target] = { ...p }; (target === "pickup" ? pickupIn : destIn).value = p.label;
+    form.quotes = null; $("#quotes").innerHTML = ""; drawFormRoute();
+  });
   addressField(pickupIn, (p) => { form.pickup = p; form.quotes = null; $("#quotes").innerHTML = ""; if (p) drawFormRoute(); });
   addressField(destIn, (p) => { form.destination = p; form.quotes = null; $("#quotes").innerHTML = ""; if (p) drawFormRoute(); }, () => form.pickup);
   $("#locBtn").onclick = () => {
@@ -171,6 +205,7 @@ function drawQuotes() {
     const q = form.quotes.find((x) => x.vehicle === form.vehicle);
     const scheduled = form.when === "later" && form.at ? new Date(form.at).toISOString() : null;
     const b = await rpc("create_booking_web", { p_quote_id: q.quoteId, p_payment_method: form.pay, p_scheduled_at: scheduled, p_passengers: form.passengers, p_notes: form.notes || null });
+    rememberPlace(form.destination); rememberPlace(form.pickup);
     form.quotes = null;
     if (form.pay === "CARD") await payByCard(b);
     else track(b.id);
@@ -219,23 +254,35 @@ async function track(id) {
       <div class="nav-top"><div class="ttl" style="padding-left:4px">${t("myRide")}</div></div></div>
     <div class="nav-panel"><div class="inner" id="tPanel"><div class="center"><span class="spinner"></span></div></div></div></div>`;
   const map = makeMap($("#tMap"));
-  let layer = null, pMark = null, dMark = null, carMark = null, lastKey = "", fitted = false, fitPts = null;
+  let layer = null, pMark = null, dMark = null, carMark = null, lastKey = "", fitted = false, fitPts = null, prevStatus = null, unread = 0, chatDriver = null;
 
   const draw = async () => {
     const { data: b } = await sb.from("bookings").select("*").eq("id", id).single();
     if (!b) return home();
-    if (b.status === "COMPLETED") { cleanup(); return showDone(b); }
+    if (b.status === "COMPLETED") {
+      cleanup();
+      if (prevStatus) await celebrate(w("done"), b.payment_method === "CARD" ? w("paidCard") : w("paidBoard"), { kind: "green", amount: euro(b.final_fare_cents ?? b.quoted_fare_cents).replace(/,00/, "") });
+      return showDone(b);
+    }
     if (!ACTIVE.includes(b.status)) { cleanup(); toast(t("s_" + b.status)); return home(); }
     let driver = null, vehicle = null, loc = null, rating = null;
     if (b.driver_user_id) {
       const [p, v, l, d] = await Promise.all([
-        sb.from("profiles").select("display_name, phone").eq("id", b.driver_user_id).maybeSingle(),
+        sb.from("profiles").select("display_name, phone, avatar_url").eq("id", b.driver_user_id).maybeSingle(),
         b.vehicle_id ? sb.from("vehicles").select("*").eq("id", b.vehicle_id).maybeSingle() : Promise.resolve({ data: null }),
         sb.from("driver_locations").select("*").eq("driver_user_id", b.driver_user_id).maybeSingle(),
         sb.from("drivers").select("rating").eq("user_id", b.driver_user_id).maybeSingle(),
       ]);
       driver = p.data; vehicle = v.data; loc = l.data; rating = d.data?.rating;
+      chatDriver = driver;
+      if (!stopMsg) stopMsg = watchMessages(b.id, me.id, (n) => { unread = n; const cb = $("#chatBtn"); if (cb) cb.innerHTML = icon("msg") + (n ? `<span class="nb">${n}</span>` : ""); });
     }
+    if (prevStatus && prevStatus !== b.status) {
+      if (b.status === "ACCEPTED" || (prevStatus === "REQUESTED" && b.driver_user_id)) celebrate(w("found"), `${driver?.display_name || ""} ${w("isComing")}${vehicle ? ` · ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")} · ${vehicle.registration_number}` : ""}`);
+      else if (b.status === "DRIVER_ARRIVING") toast(w("enRoute"));
+      else if (b.status === "IN_PROGRESS") toast(w("goodTrip"));
+    }
+    prevStatus = b.status;
     const pick = { lat: b.pickup_lat, lng: b.pickup_lng }, dest = { lat: b.destination_lat, lng: b.destination_lng };
     let eta = null;
     if (map) {
@@ -261,9 +308,10 @@ async function track(id) {
         <span class="muted">${eta ? `${w("arrivalIn")} ${eta} min · ` : ""}${b.scheduled_at ? fmtDate(b.scheduled_at) + " · " : ""}${euro(b.quoted_fare_cents)}</span></div>
         ${b.status === "REQUESTED" ? "" : `<span style="flex:0">${statusBadge(b.status)}</span>`}</div>
       ${b.status === "REQUESTED" ? `<p class="pulse muted">${waitingCard ? "" : t("searching")}</p>` : ""}
-      ${driver ? `<div class="person"><div class="avatar">${esc(initials(driver.display_name))}</div>
-        <div class="grow"><small>${w("driver")}</small><strong>${esc(driver.display_name)}</strong>${rating ? `<small class="stars-s">★ ${rating}</small>` : ""}</div>
-        ${driver.phone ? `<a class="round" href="tel:${esc(driver.phone)}" aria-label="${t("call")}">${icon("phone")}</a><a class="round" href="sms:${esc(driver.phone)}" aria-label="SMS">${icon("msg")}</a>` : ""}</div>
+      ${driver ? `<div class="person">${avatarHtml(driver)}
+        <div class="grow"><small>${w("driver")}</small><strong>${esc(driver.display_name)}</strong>${ratingLine(rating)}</div>
+        ${driver.phone ? `<a class="round" href="tel:${esc(driver.phone)}" aria-label="${t("call")}">${icon("phone")}</a>` : ""}
+        <button class="round" id="chatBtn" aria-label="${w("messages")}">${icon("msg")}${unread ? `<span class="nb">${unread}</span>` : ""}</button></div>
         ${vehicle ? `<div class="person"><div class="avatar" style="background:var(--card2);border:1px solid var(--line)">${icon("car")}</div>
           <div class="grow"><small>${t("vehicle")}</small><strong>${esc([vehicle.make, vehicle.model].filter(Boolean).join(" "))}</strong><small>${esc(vehicle.color || "")}</small></div>
           <span class="badge" style="font-size:14px">${esc(vehicle.registration_number)}</span></div>` : ""}` : ""}
@@ -272,6 +320,7 @@ async function track(id) {
       <div class="kv"><span>${t("payment")}</span><span>${b.payment_method === "CARD" ? t("card") : t("onBoard")} · ${esc(t("p_" + b.payment_status))}</span></div>
       ${b.status !== "IN_PROGRESS" ? `<button class="btn danger" id="cancelBtn">${t("cancelRide")}</button>` : ""}`;
     if (fitPts && map) { map.invalidateSize(); map.fitBounds(fitPts, { paddingTopLeft: [50, 70], paddingBottomRight: [50, 40] }); fitPts = null; }
+    $("#chatBtn")?.addEventListener("click", () => openChat(b.id, me.id, chatDriver, "client"));
     const cb = $("#cancelBtn");
     if (cb) cb.onclick = (e) => {
       const msg = t("cancelConfirm") + (b.status === "DRIVER_ARRIVING" ? "\n" + t("feeWarning") : "");
@@ -291,16 +340,17 @@ async function track(id) {
 async function showDone(b) {
   tabbar.classList.add("hidden");
   let driver = null;
-  if (b.driver_user_id) ({ data: driver } = await sb.from("profiles").select("display_name").eq("id", b.driver_user_id).maybeSingle());
+  if (b.driver_user_id) ({ data: driver } = await sb.from("profiles").select("display_name, avatar_url").eq("id", b.driver_user_id).maybeSingle());
   const fare = b.final_fare_cents ?? b.quoted_fare_cents;
   overlay.innerHTML = `<div class="sheet"><div class="inner">
     <div class="done"><div class="check">${icon("check")}</div><h1 style="margin:0">${w("done")}</h1>
       <div class="amount">${euro(fare).replace(/,00/, "")}</div><div class="muted">${b.payment_method === "CARD" ? w("paidCard") : w("paidBoard")}</div></div>
     <div class="card"><div class="route"><div>${esc(b.pickup_label)}</div><div>${esc(b.destination_label)}</div></div></div>
-    ${driver ? `<div class="card center"><div class="person" style="border:0;padding:0 0 10px;justify-content:center;text-align:left"><div class="avatar">${esc(initials(driver.display_name))}</div>
+    ${driver ? `<div class="card center"><div class="person" style="border:0;padding:0 0 10px;justify-content:center;text-align:left">${avatarHtml(driver)}
       <div><small class="muted">${w("driver")}</small><br><strong>${esc(driver.display_name)}</strong></div></div>
       ${b.driver_rating ? `<div class="stars-s" style="font-size:26px">${"★".repeat(b.driver_rating)}</div>` : `<div class="muted">${w("rate")}</div><div class="stars" id="stars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}">★</button>`).join("")}</div>`}</div>` : ""}
-    <button class="btn" id="dNew">${w("newRide")}</button></div></div>`;
+    <button class="btn" id="dNew">${w("newRide")}</button>
+    <a class="btn secondary" href="receipt.html?id=${b.id}">${icon("doc")} ${w("receipt")}</a></div></div>`;
   $("#dNew").onclick = () => { sessionStorage.setItem("rated-" + b.id, "1"); view = "home"; home(); };
   const stars = $("#stars");
   if (stars) stars.querySelectorAll("button").forEach((btn) => {
@@ -318,17 +368,29 @@ async function showDone(b) {
 function ridesView(list) {
   app.innerHTML = `<h1>${w("myRides")}</h1><div class="card" style="padding:4px 16px">${list.length ? list.map((b) => `<div class="list-row" style="cursor:default"><div class="vic">${icon("car")}</div>
     <div class="body"><div>${esc(short(b.pickup_label))} → ${esc(short(b.destination_label))}</div><small>${fmtDate(b.scheduled_at || b.created_at)} · ${esc(t("s_" + b.status))} · ${b.payment_method === "CARD" ? t("card") : t("onBoard")}</small></div>
-    <div class="end">${euro(b.final_fare_cents ?? b.quoted_fare_cents).replace(/,00/, "")}</div></div>`).join("") : `<p class="list-empty">${t("noHistory")}</p>`}</div>`;
+    <div class="end">${euro(b.final_fare_cents ?? b.quoted_fare_cents).replace(/,00/, "")}</div>
+    ${b.status === "COMPLETED" ? `<a class="round" style="width:38px;height:38px" href="receipt.html?id=${b.id}" aria-label="${w("receipt")}">${icon("doc")}</a>` : ""}</div>`).join("") : `<p class="list-empty">${t("noHistory")}</p>`}</div>`;
 }
 
 function profileView() {
-  app.innerHTML = `<div class="profile-head"><div class="avatar lg" style="margin:0 auto">${esc(initials(me.display_name))}</div><h2>${esc(me.display_name)}</h2><div class="muted">${esc(me.email || "")}</div></div>
+  const f = favs();
+  app.innerHTML = `<div class="profile-head"><div style="display:inline-block" id="photoBtn" title="${w("changePhoto")}">${avatarHtml(me, "lg editable", `<span class="cam">${CAM}</span>`)}</div>
+      <h2>${esc(me.display_name)}</h2><div class="muted">${esc(me.email || "")}</div>${ratingLine(me.client_rating, me.client_rating_count)}</div>
+    <div class="section-title">${w("favorites")}</div>
+    <div class="card"><p class="muted" style="margin-top:0">${w("favHint")}</p>
+      <label>${icon("home")} ${w("home2")}</label><div><input id="favHome" autocomplete="off" value="${esc(f.home?.label || "")}"></div>
+      <label>${icon("rides")} ${w("work")}</label><div><input id="favWork" autocomplete="off" value="${esc(f.work?.label || "")}"></div></div>
     <div class="section-title">${w("info")}</div>
     <form class="card" id="meForm"><label>${t("name")}</label><input name="display_name" required value="${esc(me.display_name)}">
       <label>${t("phone")}</label><input name="phone" type="tel" value="${esc(me.phone)}"><button class="btn secondary" type="submit">${t("save")}</button></form>
     <div class="card settings" style="padding:4px 16px">
       <div class="list-row" id="pLang"><div class="vic">${icon("globe")}</div><div class="body">${w("language")}</div><span class="end">${lang === "fr" ? "Français" : "English"}</span><span class="chev">${icon("chevR")}</span></div>
-      <div class="list-row" id="pOut"><div class="vic">${icon("logout")}</div><div class="body logout">${w("logout")}</div></div></div>`;
+      <a class="list-row" href="legal.html#aide" style="color:inherit;text-decoration:none"><div class="vic">${icon("shield")}</div><div class="body">${w("help")}</div><span class="chev">${icon("chevR")}</span></a>
+      <div class="list-row" id="pOut"><div class="vic">${icon("logout")}</div><div class="body logout">${w("logout")}</div></div></div>${legalLinks()}`;
+  $("#photoBtn").onclick = async () => { const url = await pickAvatar(me.id); if (url) { me.avatar_url = url; profileView(); } };
+  const saveFav = (k) => (p) => { if (!p) return; const all = favs(); all[k] = { label: p.label, lat: p.lat, lng: p.lng, postcode: p.postcode }; store.set("favPlaces", all); toast(t("saved")); };
+  addressField($("#favHome"), saveFav("home"));
+  addressField($("#favWork"), saveFav("work"));
   $("#pLang").onclick = () => { toggleLang(); location.reload(); };
   $("#pOut").onclick = async () => { cleanup(); await sb.auth.signOut(); view = "home"; start(); };
   $("#meForm").onsubmit = (e) => { e.preventDefault(); busy(e.submitter, async () => {
