@@ -62,6 +62,19 @@ function askPhone(me) {
   }); };
 }
 
+// Espace chauffeur : l'administration s'ouvre dans le tableau de bord dédié.
+if (APP === "driver") {
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest?.('[data-v="admin"], #sAdmin')) return;
+    e.preventDefault(); e.stopImmediatePropagation(); location.href = "admin.html";
+  }, true);
+  currentProfile().then(async (me) => {
+    if (me?.role !== "ADMIN") return;
+    const { data } = await sb.from("drivers").select("user_id").eq("user_id", me.id).maybeSingle();
+    if (!data) location.replace("admin.html");
+  }).catch(() => {});
+}
+
 (async () => {
   const from = store.get("oauthApp");
   if (!from) return;
