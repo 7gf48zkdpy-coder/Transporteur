@@ -50,7 +50,7 @@ window.__css = new Promise(function (ok) {
 
 <script type="module">
 import { sb, watchSettings, watchTable, rowToBooking, docOf, carLabel, configured, DEFAULT_SETTINGS, $, esc, todayISO, fmtDate, eur, ago, toast, copy, STATUS, LOGO, IC,
-  revolutLink, CATS, ENERGIES, guessEnergie, searchPlaces, populaires, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen } from "./shared.js";
+  revolutLink, CATS, ENERGIES, guessEnergie, searchPlaces, populaires, route, createMap, markerEl, setRouteLine, fitTo, wazeTo, appleTo, googleTo, notConfiguredScreen, openSheet } from "./shared.js";
 
 $("#band").innerHTML = `${LOGO}<div><h1>Transporteur</h1><div class="tag">Espace chauffeur</div></div><div class="who" id="who"></div>`;
 $("#locbtn").innerHTML = IC.locate;
@@ -381,6 +381,7 @@ function coursesView() {
     ${d.status === "course" ? `<button class="sm" data-status="dispo">Je suis libre</button>` : `<button class="sm ${on ? "ghost" : "go"}" data-status="${on ? "off" : "dispo"}">${on ? "Passer hors ligne" : "Passer en ligne"}</button>`}
   </section>
   ${!S.row.modele || !S.row.plaque ? `<div class="msg warn small">Ajoutez votre voiture et votre plaque dans <b>Réglages</b> : vos clients les voient.</div>` : ""}
+  ${!S.row.entreprise?.siret ? `<div class="msg warn small">Ajoutez votre SIRET dans <b>Réglages → Mon entreprise</b> pour que vos clients puissent télécharger leur facture${isAdmin() ? "" : " à votre nom (sinon elle est émise au nom du responsable)"}.</div>` : ""}
   ${isAdmin() ? "" : partCard()}
   <div class="kpis">
     <div><b>${pending}</b><span>à accepter</span></div>
@@ -440,6 +441,8 @@ function rideCard(b) {
   const act2 = [];
   if (b.statut === "confirmee" && (mine(b) || isAdmin()) || b.statut === "en_attente" && isAdmin()) act2.push(`<button class="danger sm" data-st="${b.id}|annulee">Annuler la course</button>`);
   if (b.statut === "annulee" && isAdmin()) act2.push(`<button class="ghost sm" data-repend="${b.id}">Remettre en attente</button>`);
+  if ((b.statut === "confirmee" || b.statut === "terminee") && !b.paye && (mine(b) || isAdmin())) act2.push(`<button class="ghost sm" data-paye="${b.id}">Marquer payée</button>`);
+  if (b.statut === "terminee" && (mine(b) || isAdmin())) act2.push(`<button class="ghost sm" data-facture="${b.id}">Facture</button>`);
   if (isAdmin()) act2.push(`<button class="ghost sm" data-fix="${b.id}">Corriger km / prix</button>`, `<button class="danger sm" data-del="${b.id}">Supprimer</button>`);
   if (act2.length) more.push(`<div class="actions">${act2.join("")}</div>`);
   more.push(`<p class="muted small mono">Réf. ${esc(b.ref)}</p>`);
@@ -452,6 +455,7 @@ function rideCard(b) {
     <div class="route"><span class="pin"></span><span>${esc(b.depart?.label)}</span><span class="line"></span><span></span><span class="pin end"></span><span>${esc(b.arrivee?.label)}</span></div>
     <div class="cz-client"><div class="grow"><b>${esc(b.clientPrenom)} ${esc(b.clientNom)}</b><small>${info}</small></div>${tel ? `<a class="cz-ibtn" href="tel:${esc(tel)}" aria-label="Appeler ${esc(b.clientPrenom)}">${ICO.phone}</a>` : ""}</div>
     ${other ? `<p class="small muted">Chauffeur : <b style="color:var(--ink)">${esc(nameOf(b.driverId))}</b></p>` : ""}
+    ${b.paye ? `<p class="small" style="color:var(--ok);font-weight:600">Payée${b.payeVia === "carte" ? " par carte" : b.paiement === "especes" ? " en espèces" : ""} ✅</p>` : ""}
     ${notes.map(n => `<p class="cz-note">${esc(n)}</p>`).join("")}
     ${b.note ? `<p class="small muted">« ${esc(b.note)} »</p>` : ""}
     ${isAdmin() && S.fix === b.id ? `<form class="stack cz-fix" data-fix-form="${b.id}" novalidate>
@@ -583,16 +587,39 @@ function reglagesView() {
     <p class="muted small">Vos clients voient votre prénom, votre voiture et votre plaque.</p>${profileFields("m", S.row)}
     <p class="small muted">Catégorie : <b class="ink">${esc(CATS[S.row.categorie] || "Berline")}</b> (réglée par le responsable)</p>
     <button type="submit">Enregistrer</button></form>`;
+  const E = S.row.entreprise || {};
+  const ef = (k, label, ph = "", extra = "") => `<label class="f" for="en-${k}">${label}<input id="en-${k}" ${extra} placeholder="${esc(ph)}" value="${esc(E[k] || "")}" autocomplete="off"></label>`;
+  const formes = ["Entrepreneur individuel (EI)", "EURL", "SASU", "SARL", "SAS"];
+  const entreprise = `<form id="en-form" class="stack" novalidate>
+    <p class="muted small">Ces informations apparaissent sur les factures de vos courses${isAdmin() ? " et dans les mentions légales de l'appli" : ""}.</p>
+    ${ef("nom", "Nom ou nom commercial", "ex. Zakaria André VTC")}
+    <label class="f" for="en-forme">Forme<select id="en-forme">${formes.map(x => `<option ${(E.forme || formes[0]) === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+    ${ef("siret", "SIRET (14 chiffres)", "123 456 789 00012", 'inputmode="numeric" class="mono"')}
+    ${ef("adresse", "Adresse", "N°, rue, code postal, ville")}
+    <div class="row">${ef("tel", "Téléphone pro", "", 'type="tel"')}${ef("email", "E-mail pro", "", 'type="email" autocapitalize="off"')}</div>
+    <div class="row">${ef("carteVtc", "N° carte professionnelle VTC", "", 'class="mono"')}${ef("evtc", "N° registre VTC (EVTC)", "", 'class="mono"')}</div>
+    <label class="f" for="en-tva">TVA<select id="en-tva"><option value="franchise" ${E.tva !== "assujetti" ? "selected" : ""}>Franchise de TVA (micro-entreprise)</option><option value="assujetti" ${E.tva === "assujetti" ? "selected" : ""}>Je facture la TVA (10 %)</option></select></label>
+    ${E.tva === "assujetti" ? ef("tvaNum", "N° de TVA intracommunautaire", "FR…", 'class="mono"') : ""}
+    ${isAdmin() ? ef("mediateur", "Médiateur de la consommation (nom et site)", "ex. CM2C — cm2c.net") : ""}
+    <button type="submit">Enregistrer</button></form>`;
+  const stripeOn = !!S.settings?.stripe?.actif;
+  const stripe = `<div class="stack">
+    <p class="small">Le client paie par carte ou Apple Pay sur une page sécurisée, et la course passe <b>« payée » toute seule</b>. 0 € par mois : Stripe prend seulement une petite commission par paiement (environ 1,5 % + 0,25 €).</p>
+    <ol class="small muted" style="margin:0;padding-left:18px"><li>Créez un compte gratuit sur stripe.com (avec votre SIRET et votre IBAN).</li><li>Dans Stripe : Développeurs → Clés API → copiez la <b>clé secrète</b> (sk_live_…).</li><li>Dans Supabase : Edge Functions → Secrets → ajoutez <b class="mono">STRIPE_SECRET_KEY</b> avec cette clé.</li><li>Activez ci-dessous.</li></ol>
+    <p class="small muted">Valable pour vos propres courses. Les courses de vos chauffeurs restent payées sur leur Revolut.</p>
+    <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="stripe-on" style="width:auto;min-height:0" ${stripeOn ? "checked" : ""}> Paiement par carte avec Stripe</label></div>`;
   const pw = `<form id="pw-form" class="stack"><label class="f" for="pw-new">Nouveau mot de passe<input id="pw-new" type="password" autocomplete="new-password" minlength="8"></label><button class="ghost" type="submit">Changer le mot de passe</button></form>`;
   const who = `<div class="cz-row flat cz-me"><div class="cz-av big">${esc((S.row.prenom || "?")[0].toUpperCase())}</div><div class="grow"><b>${esc(S.row.prenom || "")} ${esc(S.row.nom || "")}</b><small>${esc(carLabel(S.row)) || "Voiture non renseignée"}</small></div></div>`;
   if (!isAdmin()) return `<div class="cz-head"><h2>Réglages</h2></div>${who}
-    <div class="cz-group">${det("set-profil", "Mon profil et ma voiture", profil)}${det("set-pw", "Mot de passe", pw)}</div>
+    <div class="cz-group">${det("set-profil", "Mon profil et ma voiture", profil)}${det("set-ent", "Mon entreprise (factures)", entreprise)}${det("set-pw", "Mot de passe", pw)}</div>
     <button class="ghost big" id="logout">Se déconnecter</button>`;
   const lien = location.origin + location.pathname.replace(/chauffeur\.html$/, "");
   return `<div class="cz-head"><h2>Réglages</h2></div>${who}
   <div class="cz-group">
     <button class="cz-item" data-tab-go="tarifs"><span>Tarifs</span><small>Prix, catégories, codes promo, forfaits</small>${ICO.chev}</button>
     ${det("set-profil", "Mon profil et ma voiture", profil)}
+    ${det("set-ent", "Mon entreprise (factures)", entreprise)}
+    ${det("set-stripe", `Paiement par carte<small>${stripeOn ? "Stripe activé" : "Revolut"}</small>`, stripe)}
     ${det("set-pay", "Virement bancaire", `<form id="pay-form" class="stack">
       <p class="muted small">Affiché aux clients qui paient par carte quand le chauffeur n'a pas de Revtag.</p>
       <label class="f" for="p-tit">Titulaire<input id="p-tit" value="${esc(s.titulaire || "")}"></label>
@@ -985,6 +1012,28 @@ function bind() {
     e.preventDefault(); const f = readProfile("m");
     if (!f.prenom) return toast("Le prénom est obligatoire");
     try { await writeMe(f); if (isAdmin()) await writeSettings({ revtag: f.revtag }).catch(() => { }); toast("Enregistré"); render(); } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
+  });
+  $("#en-form")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const g = k => ($("#en-" + k)?.value || "").trim();
+    const E = { ...(S.row.entreprise || {}), nom: g("nom"), forme: g("forme"), siret: g("siret").replace(/\s/g, ""), adresse: g("adresse"), tel: g("tel"), email: g("email"),
+      carteVtc: g("carteVtc"), evtc: g("evtc"), tva: g("tva") || "franchise", tvaNum: g("tvaNum") || (S.row.entreprise?.tvaNum || "") };
+    if (isAdmin()) E.mediateur = g("mediateur");
+    if (E.siret && !/^\d{14}$/.test(E.siret)) return toast("Le SIRET doit faire 14 chiffres");
+    if (E.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(E.email)) return toast("Adresse e-mail invalide");
+    try {
+      await writeMe({ entreprise: E });
+      // Le compte principal est l'éditeur de l'appli : ses infos alimentent aussi les mentions légales
+      if (isAdmin()) await writeSettings({ entreprise: { ...E, responsable: [S.row.prenom, S.row.nom].filter(Boolean).join(" ") } });
+      toast("Informations enregistrées"); render();
+    } catch { toast("Enregistrement impossible. Vérifiez votre connexion."); }
+  });
+  $("#stripe-on")?.addEventListener("change", e => saveSettings({ stripe: { actif: e.target.checked, chauffeur: S.uid } }, e.target.checked ? "Paiement par carte Stripe activé" : "Paiement Stripe désactivé"));
+  on("[data-facture]", "click", e => openSheet("facture.html?id=" + encodeURIComponent(e.currentTarget.dataset.facture)));
+  on("[data-paye]", "click", async e => {
+    const btn = e.currentTarget, b = S.bookings.find(x => x.id === btn.dataset.paye); if (!b) return;
+    if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "Confirmer : payée"; return; }
+    try { await patchBooking(b, { paye: true, payeAt: Date.now() }); toast("Course marquée payée"); render(); } catch { toast("Enregistrement impossible"); }
   });
   $("#pay-form")?.addEventListener("submit", e => {
     e.preventDefault();
