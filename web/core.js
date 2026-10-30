@@ -294,8 +294,9 @@ export const icon = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" 
 export function makeMap(el, opts = {}) {
   if (!window.L) { el.innerHTML = ""; return null; }
   const map = L.map(el, { zoomControl: false, attributionControl: true, ...opts }).setView([48.8566, 2.3522], 12);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 19, subdomains: "abcd", attribution: "© OpenStreetMap © CARTO",
+  // Fond OpenStreetMap (gratuit, sans clé), assombri et teinté en bleu par la feuille de style (ui.css).
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "© OpenStreetMap",
   }).addTo(map);
   return map;
 }
