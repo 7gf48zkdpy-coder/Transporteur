@@ -1,0 +1,91 @@
+/* Transporteur VTC — finitions : carte bleu nuit, photos, bouton à glisser, animations, messagerie */
+
+/* Fond de carte teinté bleu nuit comme sur la maquette */
+.leaflet-tile-pane { filter: sepia(1) hue-rotate(180deg) saturate(3.2) brightness(.95) contrast(1.1); }
+#map, .map { height: 250px; }
+
+/* Photos de profil */
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.avatar.editable { cursor: pointer; }
+.avatar .cam { position: absolute; left: -2px; bottom: -2px; width: 28px; height: 28px; border-radius: 50%; background: var(--card2); border: 2px solid var(--bg);
+  display: flex; align-items: center; justify-content: center; color: var(--text); }
+.avatar .cam svg.i { width: 15px; height: 15px; }
+.rating-line { color: var(--muted); font-size: 12px; display: block; }
+.rating-line b { color: var(--warn); font-weight: 600; }
+
+/* Bouton à glisser (comme Uber / Bolt) */
+.slide { position: relative; height: 64px; border-radius: 20px; margin-top: 14px; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none;
+  background: linear-gradient(180deg, #2b84ff, #1567f0); box-shadow: 0 8px 24px rgba(31, 122, 255, .3); }
+.slide .fill { position: absolute; inset: 0 auto 0 0; width: 64px; background: rgba(255, 255, 255, .16); border-radius: 20px; }
+.slide .lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding-left: 56px; color: #fff; font-weight: 700; font-size: 17px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255,255,255,.82) 0%, #fff 40%, rgba(255,255,255,.82) 80%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shine 2.4s linear infinite; }
+@keyframes shine { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.slide .knob { position: absolute; top: 6px; left: 6px; width: 52px; height: 52px; border-radius: 16px; background: #fff; color: var(--blue); display: flex; align-items: center; justify-content: center;
+  cursor: grab; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); outline: none; }
+.slide .knob:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--blue); }
+.slide .knob svg.i { width: 26px; height: 26px; stroke-width: 2.4; }
+.slide.back .knob, .slide.back .fill { transition: transform .25s ease, width .25s ease; }
+.slide.done .lbl { animation: none; -webkit-text-fill-color: #fff; }
+.slide.finish { background: linear-gradient(180deg, #22c58b, #0f9f6e); box-shadow: 0 8px 24px rgba(34, 197, 139, .3); }
+.slide.finish .knob { color: #0f9f6e; }
+
+/* Animations : course acceptée / chauffeur trouvé / course terminée */
+.celebrate { position: fixed; inset: 0; z-index: 5000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  background: radial-gradient(70% 45% at 50% 42%, rgba(31, 122, 255, .35), rgba(4, 8, 20, .96) 70%); backdrop-filter: blur(6px); animation: cfade .25s ease-out; overflow: hidden; }
+.celebrate.out { animation: cout .35s ease-in forwards; }
+@keyframes cfade { from { opacity: 0; } } @keyframes cout { to { opacity: 0; } }
+.celebrate .ring { position: relative; width: 128px; height: 128px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle, #2b84ff, #1253d1); box-shadow: 0 0 60px rgba(31, 122, 255, .8); animation: pop .55s cubic-bezier(.2, 1.6, .4, 1) both; }
+.celebrate.green .ring { background: radial-gradient(circle, #2fd59a, #0f9f6e); box-shadow: 0 0 60px rgba(34, 197, 139, .7); }
+.celebrate .ring::before, .celebrate .ring::after { content: ""; position: absolute; inset: -10px; border-radius: 50%; border: 2px solid rgba(74, 147, 255, .6); animation: wave 1.6s ease-out infinite; }
+.celebrate .ring::after { animation-delay: .5s; }
+.celebrate.green .ring::before, .celebrate.green .ring::after { border-color: rgba(52, 211, 153, .6); }
+@keyframes pop { from { transform: scale(.2); opacity: 0; } }
+@keyframes wave { from { transform: scale(.9); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
+.celebrate .ring svg { width: 64px; height: 64px; stroke: #fff; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.celebrate .ring svg path { stroke-dasharray: 40; stroke-dashoffset: 40; animation: draw .45s .35s ease-out forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.celebrate h1 { margin: 30px 0 6px; font-size: 28px; animation: rise .5s .25s ease-out both; }
+.celebrate p { margin: 0; color: #b9c6e4; animation: rise .5s .35s ease-out both; max-width: 300px; }
+.celebrate .big { margin-top: 14px; font-size: 44px; animation: rise .5s .45s ease-out both; }
+@keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+.confetti { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
+@keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+.done .check { animation: pop .55s cubic-bezier(.2, 1.6, .4, 1) both; }
+.done .check svg.i path { stroke-dasharray: 40; stroke-dashoffset: 40; animation: draw .5s .3s ease-out forwards; }
+.done .amount { animation: rise .5s .3s ease-out both; }
+
+/* Messagerie */
+.chat { position: fixed; inset: 0; z-index: 2500; background: var(--bg); display: flex; flex-direction: column; animation: slideup .22s ease-out; }
+@keyframes slideup { from { transform: translateY(30px); opacity: 0; } }
+.chat-head { display: flex; align-items: center; gap: 12px; padding: calc(12px + env(safe-area-inset-top)) 16px 12px; border-bottom: 1px solid var(--line); }
+.chat-head .grow { flex: 1; min-width: 0; }
+.chat-head small { color: var(--muted); display: block; font-size: 12px; }
+.chat-list { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 560px; width: 100%; margin: 0 auto; }
+.bubble { max-width: 78%; padding: 10px 14px; border-radius: 18px; background: var(--card2); border: 1px solid var(--line); align-self: flex-start; word-wrap: break-word; }
+.bubble.me { align-self: flex-end; background: linear-gradient(180deg, #2b84ff, #1567f0); border-color: transparent; color: #fff; }
+.bubble small { display: block; font-size: 11px; opacity: .7; margin-top: 2px; text-align: right; }
+.chat-quick { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 8px; max-width: 560px; width: 100%; margin: 0 auto; }
+.chat-quick button { flex: 0 0 auto; }
+.chat-form { display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); max-width: 560px; width: 100%; margin: 0 auto; }
+.chat-form input { border-radius: 999px; }
+.chat-form button { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; }
+.round { position: relative; }
+.round .nb, .iconbtn .nb { position: absolute; top: -3px; right: -3px; background: var(--bad); color: #fff; font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+
+/* Adresses favorites et récentes */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; }
+.chips button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips svg.i { width: 15px; height: 15px; }
+
+/* Pied de page discret (liens légaux) */
+.legal-links { text-align: center; font-size: 12px; color: var(--muted); padding: 18px 0 6px; }
+.legal-links a { color: var(--muted); margin: 0 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+.req .sub svg.i { width: 13px; height: 13px; vertical-align: -2px; }
+.chat-form button svg.i { transform: rotate(90deg); }
+.nav-legal .chip { text-decoration: none; white-space: nowrap; }
