@@ -1,0 +1,13 @@
+{
+  "name": "transporteur-vtc",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace backend run dev",
+    "build:api": "npm --workspace backend run build"
+  }
+}
