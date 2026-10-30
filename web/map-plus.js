@@ -1,5 +1,5 @@
 // Transporteur VTC — carte façon maquette (chargé juste après Leaflet, avant l'appli).
-//  1. Fond de carte bleu nuit (CARTO Dark Matter teinté dans ui.css) + noms de rues nets sur un calque à part.
+//  1. Fond de carte bleu nuit (Esri Dark Gray, sans clé, teinté dans ui.css) + noms de rues nets sur un calque à part.
 //  2. Le chauffeur est une voiture vue de dessus (plus de flèche), orientée dans le sens de la marche.
 //  3. Les liens d'itinéraire ouvrent Waze au lieu de Google Maps.
 (function () {
@@ -26,12 +26,13 @@
   if (!L) return;
 
   // ---------------------------------------------------------------- 1. fond de carte
-  var ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>';
+  var ATTR = 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap';
+  var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/";
   var tileLayer = L.tileLayer;
   L.tileLayer = function (url, opts) {
     if (typeof url !== "string" || url.indexOf("tile.openstreetmap.org") === -1) return tileLayer.apply(this, arguments);
-    var base = tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-      { maxZoom: 20, subdomains: "abcd", className: "tiles-base", attribution: ATTR });
+    var base = tileLayer(ESRI + "World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 20, maxNativeZoom: 16, className: "tiles-base", attribution: ATTR });
     var labels = null;
     base.on("add", function () {
       var map = base._map;
@@ -40,8 +41,8 @@
         pane.style.zIndex = 450; // au-dessus des itinéraires, sous les marqueurs
         pane.style.pointerEvents = "none";
       }
-      labels = tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
-        { maxZoom: 20, subdomains: "abcd", className: "tiles-labels", pane: "labels" }).addTo(map);
+      labels = tileLayer(ESRI + "World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+        { maxZoom: 20, maxNativeZoom: 16, className: "tiles-labels", pane: "labels" }).addTo(map);
     });
     base.on("remove", function () { if (labels) labels.remove(); });
     return base;
