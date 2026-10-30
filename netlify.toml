@@ -1,4 +1,10 @@
+# Site Transporteur VTC : appli web client (index.html) + espace chauffeur (chauffeur.html), dossier web/
 [build]
-  publish = "."
+  publish = "web"
   # Crée les icônes PNG à partir du logo (script sans dépendance)
-  command = "node build-icons.js && node build-acces.js"
+  command = "node web/build-icons.js web"
+
+[[redirects]]
+  from = "/chauffeur"
+  to = "/chauffeur.html"
+  status = 200
