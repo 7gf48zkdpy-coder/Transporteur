@@ -260,15 +260,91 @@ export function addressField(input, onPick, getNear) {
   input.addEventListener("blur", () => setTimeout(close, 150));
 }
 
-// ------------------------------------------------------------------ carte (Leaflet + OpenStreetMap)
-export function makeMap(el) {
+// ------------------------------------------------------------------ icônes (traits fins, style de la maquette)
+const ICONS = {
+  home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+  rides: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M8.5 10h7M8.5 14h7M8.5 18h4"/>',
+  wallet: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M12 7v10M14.5 9.2c-.6-.7-1.5-1-2.5-1-1.4 0-2.5.7-2.5 1.8 0 2.6 5 1.3 5 3.9 0 1.1-1.1 1.9-2.5 1.9-1.1 0-2-.4-2.6-1.1"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  car: '<path d="M5 16V12l2-5h10l2 5v4"/><path d="M3 12h18v5H3z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 2.9-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2.1.6 3.5 2.4 3.5 5.2"/>',
+  chevR: '<path d="M9 5l7 7-7 7"/>', chevL: '<path d="M15 5l-7 7 7 7"/>', back: '<path d="M20 12H4M10 6l-6 6 6 6"/>',
+  phone: '<path d="M5 3h4l2 5-3 2a12 12 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
+  msg: '<rect x="3" y="5" width="18" height="13" rx="3"/><path d="M7 10l5 3 5-3"/>',
+  nav: '<path d="M12 2l7 19-7-4-7 4z"/>', locate: '<path d="M3 11l18-8-8 18-2-8z"/>',
+  sound: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>', mute: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', logout: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
+  doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>', pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  card: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h3"/>', globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  admin: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>', power: '<path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/>',
+  arrows: '<path d="M6 7l5 5-5 5M13 7l5 5-5 5"/>', star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  "turn-left": '<path d="M15 20v-7a3 3 0 0 0-3-3H5M9 6l-4 4 4 4"/>', "turn-right": '<path d="M9 20v-7a3 3 0 0 1 3-3h7M15 6l4 4-4 4"/>',
+  straight: '<path d="M12 20V4M6 10l6-6 6 6"/>', uturn: '<path d="M8 20V9a4 4 0 0 1 8 0v4M12 10l4 4 4-4"/>', flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', route: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/>',
+};
+export const icon = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
+
+// ------------------------------------------------------------------ carte sombre (Leaflet + CARTO / OpenStreetMap)
+export function makeMap(el, opts = {}) {
   if (!window.L) { el.innerHTML = ""; return null; }
-  const map = L.map(el, { zoomControl: false, attributionControl: true }).setView([48.8566, 2.3522], 11);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  const map = L.map(el, { zoomControl: false, attributionControl: true, ...opts }).setView([48.8566, 2.3522], 12);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 19, subdomains: "abcd", attribution: "© OpenStreetMap © CARTO",
+  }).addTo(map);
   return map;
 }
 export const dot = (color) => L.divIcon({ className: "", html: `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.5)"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
-export const carIcon = () => L.divIcon({ className: "", html: `<div style="font-size:26px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">🚘</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+export const pinIcon = (start = false) => L.divIcon({ className: "", html: `<div class="pin ${start ? "start" : ""}"></div>`, iconSize: [30, 30], iconAnchor: [15, 30] });
+export const meIcon = () => L.divIcon({ className: "", html: `<div class="me-dot"><svg viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></svg></div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+export const carIcon = () => L.divIcon({ className: "", html: `<div class="me-dot"><svg viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></svg></div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+export const labelIcon = (title, sub) => L.divIcon({ className: "", html: `<div class="map-label">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`, iconSize: null, iconAnchor: [-14, 46] });
+export function routeLayer(map, coords) {
+  const glow = L.polyline(coords, { color: "#1f7aff", weight: 12, opacity: .25 }).addTo(map);
+  const line = L.polyline(coords, { color: "#3d8bff", weight: 5, opacity: 1 }).addTo(map);
+  return { remove: () => { glow.remove(); line.remove(); }, bounds: line.getBounds() };
+}
+
+/** Itinéraire routier (OSRM, gratuit) avec la prochaine manœuvre. Sans réseau : ligne droite estimée. */
+export async function getRoute(from, to) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;
+    const r = await fetch(url);
+    const j = await r.json();
+    const rt = j.routes?.[0];
+    if (!rt) throw new Error("NO_ROUTE");
+    const steps = rt.legs?.[0]?.steps || [];
+    const nextStep = steps[1] || steps[0];
+    return {
+      coords: rt.geometry.coordinates.map(([x, y]) => [y, x]), distance: rt.distance, duration: rt.duration,
+      next: nextStep ? { type: nextStep.maneuver?.type, modifier: nextStep.maneuver?.modifier || "", name: nextStep.name || nextStep.destinations || "", distance: steps[0]?.distance ?? 0 } : null,
+    };
+  } catch {
+    const R = 6371e3, rad = (d) => (d * Math.PI) / 180;
+    const h = Math.sin(rad(to.lat - from.lat) / 2) ** 2 + Math.cos(rad(from.lat)) * Math.cos(rad(to.lat)) * Math.sin(rad(to.lng - from.lng) / 2) ** 2;
+    const d = 2 * R * Math.asin(Math.sqrt(h)) * 1.35;
+    return { coords: [[from.lat, from.lng], [to.lat, to.lng]], distance: d, duration: d / 7.8 + 120, next: null };
+  }
+}
+export function turnIcon(next) {
+  if (!next) return "straight";
+  if (next.type === "arrive") return "flag";
+  const m = next.modifier;
+  if (m.includes("uturn")) return "uturn";
+  if (m.includes("left")) return "turn-left";
+  if (m.includes("right")) return "turn-right";
+  return "straight";
+}
+export const fmtDist = (m) => (m < 950 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0).replace(".", lang === "en" ? "." : ",")} km`);
+export const initials = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("") || "?";
+
+/** Écran de chargement : retiré dès que l'appli est prête. */
+export function hideSplash() { const s = document.getElementById("splash"); if (s) { s.classList.add("out"); setTimeout(() => s.remove(), 400); } }
 
 // ------------------------------------------------------------------ compte
 export async function currentProfile() {
