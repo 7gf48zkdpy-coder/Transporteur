@@ -1,8 +1,8 @@
 // Transporteur VTC — ouverture rapide et installation sur l'écran d'accueil.
 // Les pages et scripts sont toujours redemandés au réseau (pour avoir la dernière version) ;
 // la copie en cache ne sert que si le réseau est indisponible. Les données (Supabase) ne sont jamais mises en cache.
-const CACHE = "transporteur-v3";
-const SHELL = ["./", "index.html", "chauffeur.html", "app.css", "ui.css", "core.js", "ui.js", "client.js", "driver.js", "icon.svg", "manifest.json", "manifest-chauffeur.json"];
+const CACHE = "transporteur-v4";
+const SHELL = ["./", "index.html", "chauffeur.html", "app.css", "ui.css", "core.js", "ui.js", "client.js", "driver.js", "map-plus.js", "icon.svg", "manifest.json", "manifest-chauffeur.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
