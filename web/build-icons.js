@@ -4,7 +4,7 @@ const fs = require("fs");
 const zlib = require("zlib");
 
 // Fond bleu nuit en dégradé (clair au centre, presque noir sur les bords), logo blanc, filet argent-bleu
-const BG_IN = [0x1a, 0x2c, 0x55], BG_OUT = [0x04, 0x07, 0x10], FG = [0xf6, 0xf7, 0xfa], GOLD = [0x9d, 0xb4, 0xea];
+let BG_IN = [0x1a, 0x2c, 0x55], BG_OUT = [0x04, 0x07, 0x10], FG = [0xf6, 0xf7, 0xfa], GOLD = [0x9d, 0xb4, 0xea];
 const bgAt = (x, y) => { const t = Math.min(1, Math.hypot(x - 256, y - 220) / 380); const e = t * t * (3 - 2 * t); return BG_IN.map((c, i) => c + (BG_OUT[i] - c) * e); };
 // Logo : trois parallélogrammes (repère 330 x 140), placés comme dans icon.svg
 const LOGO = [[[42, 0], [124, 0], [82, 140], [0, 140]], [[145, 0], [227, 0], [185, 140], [103, 140]], [[248, 0], [330, 0], [288, 140], [206, 140]]]
@@ -65,6 +65,13 @@ function png(w, h, raw) {
 
 const out = process.argv[2] || ".";
 for (const [name, size] of [["icon-512.png", 512], ["icon-maskable-512.png", 512], ["icon-192.png", 192], ["apple-touch-icon.png", 180]]) {
+  fs.writeFileSync(require("path").join(out, name), render(size));
+  console.log("icône créée :", name, size + "x" + size);
+}
+
+// Appli « Transporteur Admin » : même logo sur fond doré, pour la distinguer des applis client / chauffeur sur l'écran d'accueil.
+BG_IN = [0xc9, 0x93, 0x2c]; BG_OUT = [0x3a, 0x24, 0x05]; FG = [0xff, 0xff, 0xff]; GOLD = [0x1a, 0x10, 0x02];
+for (const [name, size] of [["icon-admin-512.png", 512], ["icon-admin-192.png", 192], ["apple-touch-icon-admin.png", 180]]) {
   fs.writeFileSync(require("path").join(out, name), render(size));
   console.log("icône créée :", name, size + "x" + size);
 }
