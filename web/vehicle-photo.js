@@ -1,20 +1,22 @@
 // Transporteur VTC — photo du véhicule.
 //  • Espace chauffeur : « Mon véhicule » permet d'ajouter / changer la photo de la voiture ; elle s'affiche aussi dans « Mon profil ».
-//  • Appli client : pendant la course, la photo de la voiture du chauffeur s'affiche au-dessus de la plaque.
+//  • Appli client : pendant la course, la photo de la voiture du chauffeur remplace l'icône à côté du modèle et de la plaque.
 // Les photos sont rangées dans le dossier public « avatars/<id du chauffeur>/ » et l'adresse est gardée dans vehicles.photo_url.
 import { sb, toast, esc, busy } from "./core.js";
 
 const css = document.createElement("style");
 css.textContent = `
-.veh-photo { position: relative; border-radius: 16px; overflow: hidden; background: var(--card2); border: 1px solid var(--line); aspect-ratio: 16 / 9; margin: 10px 0 4px; }
-.veh-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.veh-photo { position: relative; border-radius: 16px; overflow: hidden; background: radial-gradient(120% 90% at 50% 60%, #16244a, #0b1428); aspect-ratio: 16 / 9; margin: 6px 0 4px; }
+.veh-photo img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 55%, #000 55%, transparent 100%); mask-image: radial-gradient(ellipse 75% 70% at 50% 55%, #000 55%, transparent 100%); }
 .veh-photo .ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; }
 .veh-photo .ph svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.6; }
-.veh-photo button { position: absolute; right: 10px; bottom: 10px; width: auto; padding: 9px 14px; font-size: 14px; }
-.vic.veh-thumb { padding: 0; overflow: hidden; }
-.vic.veh-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.veh-hero { border-radius: 16px; overflow: hidden; aspect-ratio: 16 / 8; margin: 12px 0 2px; border: 1px solid var(--line); background: var(--card2); }
-.veh-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
+.veh-photo button { position: absolute; right: 10px; bottom: 10px; width: auto; padding: 8px 13px; font-size: 13px; border-radius: 12px; }
+/* vignette de la voiture, fondue dans la carte (comme sur la maquette) */
+.veh-thumb { flex: 0 0 auto; width: 112px; height: 64px; border: 0 !important; background: none !important; border-radius: 0 !important; overflow: visible; padding: 0; }
+.veh-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 10px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 72% at 50% 50%, #000 52%, transparent 100%); mask-image: radial-gradient(ellipse 70% 72% at 50% 50%, #000 52%, transparent 100%); }
+.person .veh-thumb { width: 96px; height: 56px; }
+.veh-plate { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 8px; background: #13244a; color: #cfe0ff; font-size: 13px; font-weight: 600; letter-spacing: .02em; }`;
 document.head.appendChild(css);
 
 const CAR = '<svg viewBox="0 0 24 24"><path d="M5 16V12l2-5h10l2 5v4"/><path d="M3 12h18v5H3z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>';
@@ -79,7 +81,10 @@ async function enhanceVehicleRow(row) {
   row.dataset.photo = "1";
   const v = await myVehicle();
   const vic = row.querySelector(".vic");
-  if (v?.photo_url && vic) { vic.classList.add("veh-thumb"); vic.innerHTML = `<img src="${esc(v.photo_url)}" alt="">`; }
+  if (v?.photo_url && vic) { vic.className = "veh-thumb"; vic.removeAttribute("style"); vic.innerHTML = `<img src="${esc(v.photo_url)}" alt="">`; }
+  const smalls = row.querySelectorAll(".body small");          // dernière ligne = immatriculation → pastille
+  const plate = smalls[smalls.length - 1];
+  if (smalls.length > 1 && plate) { const b = document.createElement("span"); b.className = "veh-plate"; b.textContent = plate.textContent; plate.replaceWith(b); }
 }
 
 // ------------------------------------------------------------------ appli client
@@ -87,18 +92,20 @@ const byPlate = new Map();
 async function enhanceClientRide(panel) {
   const badge = [...panel.querySelectorAll(".person .badge")].find((b) => /\w/.test(b.textContent));
   if (!badge) return;
-  const plate = badge.textContent.trim();
   const row = badge.closest(".person");
-  if (row.previousElementSibling?.classList.contains("veh-hero")) return;
+  const icon = row.querySelector(".avatar");
+  if (!icon || row.dataset.photo) return;
+  row.dataset.photo = "1";
+  const plate = badge.textContent.trim();
   if (!byPlate.has(plate)) {
     byPlate.set(plate, sb.from("vehicles").select("photo_url").eq("registration_number", plate).limit(1).then(({ data }) => data?.[0]?.photo_url || null));
   }
   const url = await byPlate.get(plate);
-  if (!url || !row.isConnected || row.previousElementSibling?.classList.contains("veh-hero")) return;
-  const hero = document.createElement("div");
-  hero.className = "veh-hero";
-  hero.innerHTML = `<img src="${esc(url)}" alt="Véhicule du chauffeur">`;
-  row.before(hero);
+  if (!url || !icon.isConnected) return;
+  const thumb = document.createElement("div");
+  thumb.className = "veh-thumb";
+  thumb.innerHTML = `<img src="${esc(url)}" alt="Véhicule du chauffeur">`;
+  icon.replaceWith(thumb);
 }
 
 new MutationObserver(() => {
