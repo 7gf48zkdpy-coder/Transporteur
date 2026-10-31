@@ -82,12 +82,15 @@ document.addEventListener("click", async (e) => {
 }, true);
 
 // Frais d'annulation (calculés par la base : cancel_terms_for) — gratuits tant que le chauffeur
-// roule depuis moins de 3 min et a fait moins de 2 km, sinon 1 € / km parcouru, entre 5 € et 8 €.
+// roule depuis moins de 3 min et a fait moins de 2 km, sinon 1 € / km parcouru, entre 3 € et 8 €.
+// Toujours gratuits si le chauffeur est en retard (+5 min sur l'heure prévue) ou ne se rapproche pas.
 const num = (x) => String(Math.round(Number(x || 0) * 10) / 10).replace(".", ",");
+export const WAIVED = { DRIVER_LATE: "le chauffeur a plus de 5 min de retard", DRIVER_NOT_PROGRESSING: "le chauffeur ne se rapproche pas", DRIVER_MOVING_AWAY: "le chauffeur s'éloigne" };
 function feeNote(t) {
   if (!t) return "";
-  if (!t.fee_cents) return `<div class="cfee free"><strong>Annulation gratuite</strong>${t.status === "DRIVER_ARRIVING" ? `Votre chauffeur vient de partir (${num(t.driver_minutes)} min).` : "Votre chauffeur n'est pas encore parti."}</div>`;
-  return `<div class="cfee"><strong>Frais d'annulation : ${euro(t.fee_cents)}</strong>Votre chauffeur ${t.driver_arrived ? "est déjà arrivé" : "roule vers vous"} depuis ${num(t.driver_minutes)} min (${num(t.driver_km)} km). 1 € par km parcouru, 5 € minimum, 8 € maximum.</div>`;
+  if (!t.fee_cents) return `<div class="cfee free"><strong>Annulation gratuite</strong>${t.waived ? `Car ${WAIVED[t.waived]}.`
+    : t.status === "DRIVER_ARRIVING" ? `Votre chauffeur vient de partir (${num(t.driver_minutes)} min).` : "Votre chauffeur n'est pas encore parti."}</div>`;
+  return `<div class="cfee"><strong>Frais d'annulation : ${euro(t.fee_cents)}</strong>Votre chauffeur ${t.driver_arrived ? "est déjà arrivé" : "roule vers vous"} depuis ${num(t.driver_minutes)} min (${num(t.driver_km)} km). 1 € par km parcouru, 3 € minimum, 8 € maximum.</div>`;
 }
 
 // ------------------------------------------------------------------ compteur d'attente
