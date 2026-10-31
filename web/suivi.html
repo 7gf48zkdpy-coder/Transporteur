@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Suivi de course en direct — Transporteur VTC</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#040814">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="ui.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.20/leaflet-maplibre-gl.js" defer></script>
+<script src="traffic.js"></script>
+<script src="map-plus.js" defer></script>
+<style>
+  html, body { height: 100%; margin: 0; }
+  #map { position: fixed; inset: 0 0 auto 0; height: 58vh; }
+  .sheet-s { position: fixed; left: 0; right: 0; bottom: 0; min-height: 44vh; padding: 20px 18px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 24px 24px 0 0; background: var(--bg, #040814); box-shadow: 0 -10px 40px rgba(0,0,0,.5); box-sizing: border-box; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--muted, #9aa); font-size: 13px; margin-bottom: 12px; }
+  .brand img { width: 26px; height: 26px; }
+  .st { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font: 700 13px/1 inherit; background: rgba(31,122,255,.15); color: #6aa6ff; }
+  .st i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pl 1.4s infinite; }
+  .st.done { background: rgba(52,211,153,.15); color: #34d399; } .st.done i, .st.off i { animation: none; }
+  .st.off { background: rgba(229,72,77,.15); color: #ff6b70; }
+  @keyframes pl { 50% { opacity: .3 } }
+  h1 { margin: 12px 0 4px; font-size: 22px; }
+  .muted { color: var(--muted, #9aa); }
+  .row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line, #1c2a49); }
+  .row:first-of-type { border-top: 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; flex: none; }
+  .row small { display: block; color: var(--muted, #9aa); font-size: 12px; }
+  .row strong { font-size: 15px; }
+  .plate { display: inline-block; margin-left: 6px; padding: 3px 8px; border-radius: 6px; background: #fff; color: #0b1020; font: 800 13px/1.2 ui-monospace, Menlo, monospace; border: 2px solid #1f3b8f; }
+  .pin { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .empty { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="sheet-s" id="info"><div class="brand"><img src="icon.svg" alt=""> Transporteur VTC · suivi en direct</div><p class="muted">Chargement…</p></div>
+<script>
+(function () {
+  var URL_ = "https://zzkxkbvnhfhtdkpeljjz.supabase.co", KEY = "sb_publishable_yFtcdcTEuDAAynPBYIUOpA_0PT_fks1";
+  var token = new URLSearchParams(location.search).get("t");
+  var map, car, pick, dest, route, fitted = false, lastRouteAt = 0;
+  var LABEL = { REQUESTED: "Recherche d'un chauffeur", ACCEPTED: "Chauffeur en route", DRIVER_ARRIVING: "Chauffeur en route vers le point de départ",
+    IN_PROGRESS: "Course en cours", COMPLETED: "Arrivé à destination", CANCELLED: "Course annulée" };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var short = function (s) { return String(s || "").split(",")[0].trim(); };
+
+  function gone(msg) {
+    document.getElementById("map").remove();
+    document.getElementById("info").outerHTML = '<div class="empty"><div><img src="icon.svg" alt="" style="width:56px"><h1>' + msg + '</h1><p class="muted">Le lien de suivi n\'est plus actif.</p></div></div>';
+  }
+  function pinIcon(color) { return L.divIcon({ className: "", html: '<div class="pin" style="background:' + color + '"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }); }
+
+  async function drawRoute(from, to) {
+    if (Date.now() - lastRouteAt < 30000) return;
+    lastRouteAt = Date.now();
+    try {
+      var r = await fetch("https://router.project-osrm.org/route/v1/driving/" + from[1] + "," + from[0] + ";" + to[1] + "," + to[0] + "?overview=full&geometries=geojson");
+      var j = await r.json(), rt = j.routes && j.routes[0];
+      if (!rt) return;
+      var pts = rt.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+      if (route) route.remove();
+      route = L.polyline(pts, { color: "#3d8bff", weight: 5 }).addTo(map);
+      return Math.max(1, Math.round(rt.duration / 60));
+    } catch (e) { return null; }
+  }
+
+  var eta = null;
+  async function tick() {
+    var res = await fetch(URL_ + "/rest/v1/rpc/shared_ride", { method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + KEY, "Content-Type": "application/json" }, body: JSON.stringify({ p_token: token }) });
+    var b = res.ok ? await res.json() : null;
+    if (!b) return gone("Course terminée");
+    if (!map) {
+      map = L.map("map", { zoomControl: false, attributionControl: true });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+      pick = L.marker([b.pickup_lat, b.pickup_lng], { icon: pinIcon("#34d399") }).addTo(map);
+      dest = L.marker([b.destination_lat, b.destination_lng], { icon: pinIcon("#ff6b70") }).addTo(map);
+    }
+    var hasCar = b.driver_lat != null && b.driver_lng != null;
+    if (hasCar) {
+      var ll = [b.driver_lat, b.driver_lng];
+      if (!car) car = L.marker(ll, { icon: L.divIcon({ className: "", html: '<div class="me-dot"></div>', iconSize: [34, 34], iconAnchor: [17, 17] }), zIndexOffset: 1000 }).addTo(map);
+      else car.setLatLng(ll);
+      var target = b.status === "IN_PROGRESS" ? [b.destination_lat, b.destination_lng] : [b.pickup_lat, b.pickup_lng];
+      var m = await drawRoute(ll, target); if (m) eta = m;
+    } else if (car) { car.remove(); car = null; }
+    if (!fitted) {
+      var pts = [[b.pickup_lat, b.pickup_lng], [b.destination_lat, b.destination_lng]];
+      if (hasCar) pts.push([b.driver_lat, b.driver_lng]);
+      map.fitBounds(pts, { padding: [40, 40] }); fitted = true;
+    }
+    var cls = b.status === "COMPLETED" ? "done" : b.status === "CANCELLED" ? "off" : "";
+    var who = b.client ? esc(b.client) : "Votre proche";
+    var title = b.status === "IN_PROGRESS" ? who + " est en route" + (eta ? " · arrivée dans ~" + eta + " min" : "")
+      : b.status === "COMPLETED" ? who + " est bien arrivé(e) ✓"
+      : b.status === "CANCELLED" ? "La course a été annulée"
+      : b.status === "REQUESTED" ? "Recherche d'un chauffeur pour " + who
+      : "Le chauffeur arrive" + (eta ? " dans ~" + eta + " min" : "");
+    var v = b.vehicle;
+    document.getElementById("info").innerHTML =
+      '<div class="brand"><img src="icon.svg" alt=""> Transporteur VTC · suivi en direct</div>' +
+      '<span class="st ' + cls + '"><i></i>' + (LABEL[b.status] || b.status) + '</span><h1>' + title + '</h1>' +
+      (b.driver ? '<div class="row"><div class="dot" style="background:#f4f6fb"></div><div><small>Chauffeur</small><strong>' + esc(b.driver) + '</strong>' +
+        (v ? '<div class="muted" style="margin-top:4px">' + esc([v.make, v.model, v.color].filter(Boolean).join(" · ")) + (v.plate ? '<span class="plate">' + esc(v.plate) + '</span>' : "") + '</div>' : "") + '</div></div>' : "") +
+      '<div class="row"><div class="dot" style="background:#34d399"></div><div><small>Départ</small><strong>' + esc(short(b.pickup)) + '</strong></div></div>' +
+      '<div class="row"><div class="dot" style="background:#ff6b70"></div><div><small>Arrivée</small><strong>' + esc(short(b.destination)) + '</strong></div></div>' +
+      '<p class="muted" style="font-size:12px;margin:10px 0 0">Mis à jour automatiquement. Ce lien s\'arrête 30 min après la fin de la course.</p>';
+  }
+
+  window.addEventListener("load", function () {
+    if (!token) return gone("Lien incomplet");
+    tick().catch(function () {});
+    setInterval(function () { tick().catch(function () {}); }, 8000);
+  });
+})();
+</script>
+</body>
+</html>

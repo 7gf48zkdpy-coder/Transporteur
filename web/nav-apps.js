@@ -4,7 +4,7 @@ const css = document.createElement("style");
 css.textContent = `
 .navapps { display: flex; gap: 8px; margin: 10px 0 4px; }
 .navapps a { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 8px; border-radius: 14px;
-  font: 700 14px/1 inherit; text-decoration: none; color: #fff; background: var(--card2, #16213d); border: 1px solid var(--line, #24314f); }
+  font-weight: 700; font-size: 14px; line-height: 1; font-family: inherit; text-decoration: none; color: #fff; background: var(--card2, #16213d); border: 1px solid var(--line, #24314f); }
 .navapps a.waze { background: #33ccff; color: #05202b; border-color: #33ccff; }
 .navapps a svg { width: 18px; height: 18px; }
 #navPanel .eta .navbtn { display: none; }
