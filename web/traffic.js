@@ -2,6 +2,8 @@
 // L'itinéraire (OSRM, gratuit) donne un temps « route dégagée », souvent 2 fois plus court que Waze aux heures chargées.
 // En attendant un service avec trafic réel, on applique un coefficient selon l'heure et le jour (heure de Paris)
 // à toutes les durées renvoyées par OSRM : temps d'arrivée affichés au client et au chauffeur.
+// Lien « mot de passe oublié » : on le repère ici, avant que Supabase ne nettoie l'adresse (voir recovery.js).
+try { window.__pwRecovery = /type=recovery/.test(location.hash + location.search); } catch (e) { /* */ }
 (function () {
   function factor(d) {
     const parts = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", weekday: "short", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(d);
