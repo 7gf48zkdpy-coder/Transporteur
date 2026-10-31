@@ -1,0 +1,9 @@
+// Transporteur VTC — hébergement Cloudflare (Workers, fichiers statiques du dossier web/).
+// Les fichiers _headers et _redirects de web/ sont appliqués automatiquement.
+{
+  "name": "transporteur",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./web"
+  }
+}
