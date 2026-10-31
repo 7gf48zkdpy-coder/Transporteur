@@ -1,23 +1,42 @@
 // Transporteur VTC — appli client (même style que l'espace chauffeur)
 import { sb, isRecovery, lang, t, toggleLang, $, esc, euro, fmtDate, toast, busy, call, rpc, errText, statusBadge, addressField, reverseGeocode,
   makeMap, pinIcon, meIcon, labelIcon, routeLayer, getRoute, fmtDist, initials, icon, hideSplash, currentProfile, renderAuth, VEHICLE_ICON } from "./core.js";
-import { CAM, avatarHtml, pickAvatar, ratingLine, celebrate, openChat, watchMessages, registerSW, legalLinks } from "./ui.js";
+import { CAM, avatarHtml, pickAvatar, ratingLine, celebrate, openChat, watchMessages, registerSW, legalLinks, getSettings } from "./ui.js";
 
 const W = {
   fr: { home: "Réserver", rides: "Courses", profile: "Profil", whereTo: "Où allez-vous ?", tagline: "Votre chauffeur privé", logout: "Se déconnecter",
     driverComing: "Votre chauffeur arrive", arrivalIn: "Arrivée dans", onTheWay: "En route vers votre destination", driver: "Chauffeur",
-    done: "Course terminée", paidCard: "Paiement effectué", paidBoard: "À régler au chauffeur", rate: "Notez votre chauffeur", newRide: "Réserver une nouvelle course",
+    done: "Course terminée", paidCard: "Paiement effectué", paidBoard: "À régler au chauffeur", payRevolut: "Payer avec Revolut", amtCopied: "Montant copié : collez-le dans Revolut si besoin", rate: "Notez votre chauffeur", newRide: "Réserver une nouvelle course",
     myRides: "Mes courses", language: "Langue", info: "Mes informations", driverSpace: "Espace chauffeur", pickup: "Prise en charge", destination: "Destination",
     found: "Chauffeur trouvé !", isComing: "arrive", enRoute: "Votre chauffeur est en route", goodTrip: "Bon voyage !", messages: "Messages", receipt: "Reçu (PDF)",
     home2: "Domicile", work: "Travail", favorites: "Adresses favorites", favHint: "Pour réserver en un geste depuis l'accueil.", changePhoto: "Changer la photo", help: "Aide et support" },
   en: { home: "Book", rides: "Rides", profile: "Profile", whereTo: "Where to?", tagline: "Your private driver", logout: "Log out",
     driverComing: "Your driver is coming", arrivalIn: "Arrival in", onTheWay: "On the way to your destination", driver: "Driver",
-    done: "Ride completed", paidCard: "Payment received", paidBoard: "Pay the driver", rate: "Rate your driver", newRide: "Book a new ride",
+    done: "Ride completed", paidCard: "Payment received", paidBoard: "Pay the driver", payRevolut: "Pay with Revolut", amtCopied: "Amount copied: paste it in Revolut if needed", rate: "Rate your driver", newRide: "Book a new ride",
     myRides: "My rides", language: "Language", info: "My information", driverSpace: "Driver space", pickup: "Pickup", destination: "Destination",
     found: "Driver found!", isComing: "is coming", enRoute: "Your driver is on the way", goodTrip: "Have a nice trip!", messages: "Messages", receipt: "Receipt (PDF)",
     home2: "Home", work: "Work", favorites: "Favourite addresses", favHint: "Book in one tap from the home screen.", changePhoto: "Change photo", help: "Help & support" },
 };
 const w = (k) => W[lang]?.[k] ?? W.fr[k] ?? t(k);
+
+// Paiement « Carte ou espèces » : bouton qui ouvre le lien Revolut (revolut.me/<Revtag>) de l'entreprise.
+// Le Revtag se règle dans l'admin (Mon entreprise). Le montant est copié pour pouvoir le coller dans Revolut.
+// Paiement en ligne (Stripe) désactivé tant qu'aucun compte Stripe n'est branché : passer à true pour le réafficher.
+const CARD_ONLINE = false;
+let revtag = null;
+const loadRevtag = () => getSettings().then((s) => { revtag = String(s.revtag || "").trim().replace(/^@/, "") || null; }).catch(() => {});
+function revolutBtn(b) {
+  if (!revtag || b.payment_method !== "ON_BOARD") return "";
+  const cents = b.final_fare_cents ?? b.quoted_fare_cents;
+  return `<a class="btn" data-revolut="${(cents / 100).toFixed(2)}" target="_blank" rel="noopener" href="https://revolut.me/${encodeURIComponent(revtag)}"
+    style="background:#fff;color:#0b0b0b;box-shadow:none;font-weight:800">${w("payRevolut")} · ${euro(cents)}</a>`;
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest?.("[data-revolut]");
+  if (!a) return;
+  const amt = lang === "en" ? a.dataset.revolut : a.dataset.revolut.replace(".", ",");
+  navigator.clipboard?.writeText(amt).then(() => toast(`${w("amtCopied")} (${amt} €)`)).catch(() => {});
+});
 const short = (label) => String(label || "").split(",")[0].trim();
 const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
 const favs = () => store.get("favPlaces", {});
@@ -64,6 +83,7 @@ function drawTabbar() {
 
 async function start() {
   registerSW();
+  loadRevtag();
   cleanup();
   me = await currentProfile();
   hideSplash();
@@ -188,7 +208,7 @@ function drawQuotes() {
         </div>`).join("")}
       <p class="muted">${t("priceGuaranteed")}</p>
       <label>${t("payment")}</label>
-      <div class="seg" id="paySeg"><button data-p="ON_BOARD" class="${form.pay === "ON_BOARD" ? "on" : ""}">${t("onBoard")}</button><button data-p="CARD" class="${form.pay === "CARD" ? "on" : ""}">${t("card")}</button></div>
+      <div class="seg" id="paySeg"><button data-p="ON_BOARD" class="on">${t("onBoard")}</button>${CARD_ONLINE ? `<button data-p="CARD" class="${form.pay === "CARD" ? "on" : ""}">${t("card")}</button>` : ""}</div>
       <p class="muted" id="payHint">${form.pay === "CARD" ? t("cardHint") : t("onBoardHint")}</p>
       <button class="btn" id="bookBtn"></button>
     </div>`;
@@ -318,6 +338,7 @@ async function track(id) {
       <div class="person"><div class="avatar" style="background:var(--card2);border:1px solid var(--line)">${icon("flag")}</div>
         <div class="grow"><small>${w("destination")}</small><strong>${esc(short(b.destination_label))}</strong><small>${esc(b.destination_label.split(",").slice(1).join(",").trim())}</small></div></div>
       <div class="kv"><span>${t("payment")}</span><span>${b.payment_method === "CARD" ? t("card") : t("onBoard")} · ${esc(t("p_" + b.payment_status))}</span></div>
+      ${b.status === "IN_PROGRESS" ? revolutBtn(b) : ""}
       ${b.status !== "IN_PROGRESS" ? `<button class="btn danger" id="cancelBtn">${t("cancelRide")}</button>` : ""}`;
     if (fitPts && map) { map.invalidateSize(); map.fitBounds(fitPts, { paddingTopLeft: [50, 70], paddingBottomRight: [50, 40] }); fitPts = null; }
     $("#chatBtn")?.addEventListener("click", () => openChat(b.id, me.id, chatDriver, "client"));
@@ -349,6 +370,7 @@ async function showDone(b) {
     ${driver ? `<div class="card center"><div class="person" style="border:0;padding:0 0 10px;justify-content:center;text-align:left">${avatarHtml(driver)}
       <div><small class="muted">${w("driver")}</small><br><strong>${esc(driver.display_name)}</strong></div></div>
       ${b.driver_rating ? `<div class="stars-s" style="font-size:26px">${"★".repeat(b.driver_rating)}</div>` : `<div class="muted">${w("rate")}</div><div class="stars" id="stars">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}">★</button>`).join("")}</div>`}</div>` : ""}
+    ${revolutBtn(b)}
     <button class="btn" id="dNew">${w("newRide")}</button>
     <a class="btn secondary" href="receipt.html?id=${b.id}">${icon("doc")} ${w("receipt")}</a></div></div>`;
   $("#dNew").onclick = () => { sessionStorage.setItem("rated-" + b.id, "1"); view = "home"; home(); };

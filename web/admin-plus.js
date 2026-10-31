@@ -39,3 +39,18 @@ function addButton(sheet) {
 
 new MutationObserver(() => { const o = $("#overlay"); if (!o) return; if (o.children.length) addButton(o); else lastRide = null; })
   .observe(document.getElementById("overlay") || document.body, { childList: true, subtree: true });
+
+// ------------------------------------------------------------------ Revtag Revolut dans « Mon entreprise »
+// Les clients qui paient « Carte ou espèces » voient un bouton « Payer avec Revolut » qui ouvre revolut.me/<Revtag>.
+async function addRevtag(form) {
+  if (form.querySelector("[name=revtag]")) return;
+  const submit = form.querySelector("button[type=submit]");
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<label>Revtag Revolut (paiement des clients)</label><input name="revtag" placeholder="@montag" autocomplete="off">
+    <p class="muted" style="font-size:13px;margin:6px 0 0">Visibilité du Revtag à activer dans l'appli Revolut. Laissez vide pour masquer le bouton « Payer avec Revolut ».</p>`;
+  submit.before(...wrap.childNodes);
+  const { data } = await sb.from("app_settings").select("doc").eq("id", 1).maybeSingle();
+  form.querySelector("[name=revtag]").value = data?.doc?.revtag || "";
+}
+new MutationObserver(() => { const f = document.getElementById("coForm"); if (f) addRevtag(f); })
+  .observe(document.getElementById("overlay") || document.body, { childList: true, subtree: true });
