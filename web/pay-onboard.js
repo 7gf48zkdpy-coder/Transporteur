@@ -1,10 +1,12 @@
 // Transporteur VTC — paiement « Espèces ou Carte ».
-//  • Client : choisit Espèces ou Carte en réservant. Carte = il paie le chauffeur AVANT le départ
-//    (lien Revolut du chauffeur avec le montant pré-rempli, ou virement instantané sur son RIB), affichés dès que le chauffeur a accepté.
+//  • Client : choisit Espèces ou Carte en réservant. Carte = il paie le chauffeur avant que la course démarre
+//    (lien Revolut du chauffeur avec le montant pré-rempli, ou virement instantané sur son RIB) :
+//    à l'arrivée du chauffeur si celui-ci était à 8 km ou moins, sinon avant que le chauffeur parte vers lui.
 //    Format du lien Revolut repris de l'ancienne appli (vérifié) : revolut.me/<Revtag>?currency=EUR&amount=<centimes>.
 //  • Chauffeur : renseigne son Revtag / RIB dans « Mon profil » ; pour une course par carte, il appuie sur
 //    « J'ai reçu le paiement » après avoir vérifié son compte. La course ne peut pas démarrer avant (bloqué aussi côté base).
 import { sb, euro, esc, toast, busy } from "./core.js";
+import { waitFee } from "./ride-extras.js";
 
 const isDriverApp = /chauffeur/.test(location.pathname);
 const RUNNING = ["ACCEPTED", "DRIVER_ARRIVING", "IN_PROGRESS"];
@@ -24,7 +26,13 @@ css.textContent = `
 document.head.appendChild(css);
 
 const copy = (text, label) => navigator.clipboard?.writeText(text).then(() => toast(`${label} copié`)).catch(() => {});
-const fare = (b) => b.final_fare_cents ?? b.quoted_fare_cents;
+// Montant dû : prix de la course + supplément d'attente (figé quand le paiement est confirmé).
+// Client à plus de 8 km du chauffeur au moment de l'acceptation → paiement avant le départ du chauffeur ;
+// sinon paiement à l'arrivée du chauffeur chez le client (même règle côté base : card_pay_before_departure).
+export const PREPAY_KM = 8;
+const farAway = (b) => Number(b.approach_km || 0) > PREPAY_KM;
+const fare = (b) => b.status === "COMPLETED" ? (b.final_fare_cents ?? b.quoted_fare_cents)
+  : b.quoted_fare_cents + (b.prepaid_at ? (b.wait_fee_cents || 0) : waitFee(b.arrived_at));
 const busyEls = new WeakSet();
 async function once(el, fn) { if (busyEls.has(el)) return; busyEls.add(el); try { await fn(); } finally { busyEls.delete(el); } }
 
@@ -34,7 +42,7 @@ async function me() { const { data: { session } } = await sb.auth.getSession(); 
 let choice = "CASH";
 try { choice = sessionStorage.getItem("payChoice") || "CASH"; } catch { /* indisponible */ }
 const HINT = { CASH: "Vous réglez le chauffeur en espèces à la fin de la course.",
-  CARD: "Vous payez le chauffeur par carte AVANT le départ (lien Revolut ou virement instantané). La course démarre dès qu'il a reçu le paiement." };
+  CARD: "Vous payez le chauffeur par carte (lien Revolut ou virement instantané) à son arrivée, ou avant qu'il parte s'il est loin. La course démarre dès qu'il a reçu le paiement." };
 
 function enhancePaySeg(seg) {
   if (seg.dataset.pay) return;
@@ -78,12 +86,21 @@ async function enhanceClientPanel(panel) {
       box.innerHTML = `<h3>✓ Paiement reçu par le chauffeur <span>${euro(fare(b))}</span></h3><p>Merci ! Bon trajet.</p>`;
       anchor?.after(box); return;
     }
+    const far = farAway(b), km = b.approach_km != null ? `${String(b.approach_km).replace(".", ",")} km` : "";
+    if (!far && !b.arrived_at) {   // client proche : on paie quand le chauffeur arrive
+      box.className = "prepay later";
+      box.innerHTML = `<h3>Paiement par carte <small>${euro(fare(b))}</small></h3>
+        <p>Vous paierez à l'arrivée du chauffeur (Revolut ou virement instantané). Rien à faire pour l'instant.</p>`;
+      anchor?.after(box); return;
+    }
     const { data: info } = await sb.rpc("booking_payment_info", { p_booking_id: b.id });
     if (!panel.isConnected || panel.querySelector(".prepay")) return;
     const amount = (fare(b) / 100).toFixed(2).replace(".", ",");
+    const early = far && b.status === "ACCEPTED";
     box.className = "prepay wait";
-    box.innerHTML = `<h3>Payez avant le départ <small>${euro(fare(b))}</small></h3>
-      <p>Le chauffeur démarrera la course dès qu'il aura reçu votre paiement.</p>
+    box.innerHTML = `<h3>${early ? "Payez pour que le chauffeur parte" : "Payez maintenant"} <small>${euro(fare(b))}</small></h3>
+      <p>${early ? `Votre chauffeur est à ${km || "plus de 8 km"} : il part vers vous dès qu'il a reçu votre paiement.`
+        : far ? "Votre chauffeur attend la confirmation de votre paiement." : "Votre chauffeur est arrivé : la course démarre dès qu'il a reçu votre paiement."}</p>
       ${info?.revtag ? `<a class="btn" style="background:#fff;color:#0b0b0b;box-shadow:none;font-weight:800" target="_blank" rel="noopener"
           href="https://revolut.me/${encodeURIComponent(String(info.revtag).replace(/^@/, ""))}?currency=EUR&amount=${fare(b)}" data-amt="${amount}">Payer avec Revolut · ${euro(fare(b))}</a>` : ""}
       ${info?.iban ? `<div class="rib">Virement instantané à <strong>${esc(info.holder || "")}</strong><b>${esc(info.iban)}</b>
@@ -104,7 +121,7 @@ async function enhanceDriverProfile(form) {
   if (!d || host.querySelector("#payForm")) return;
   const title = document.createElement("div"); title.className = "section-title"; title.textContent = "Paiement par carte des clients";
   const f = document.createElement("form"); f.className = "card"; f.id = "payForm";
-  f.innerHTML = `<p class="muted" style="margin-top:0">Quand un client choisit « Carte », il voit ces informations et vous paie avant le départ.</p>
+  f.innerHTML = `<p class="muted" style="margin-top:0">Quand un client choisit « Carte », il voit ces informations et vous paie à votre arrivée (ou avant votre départ s'il est à plus de 8 km).</p>
     <label>Revtag Revolut</label><input name="pay_revtag" placeholder="@montag" autocomplete="off" value="${esc(d.pay_revtag || "")}">
     <label>Titulaire du compte</label><input name="pay_holder" autocomplete="name" value="${esc(d.pay_holder || "")}">
     <label>IBAN (pour virement instantané)</label><input name="pay_iban" placeholder="FR76 …" autocomplete="off" value="${esc(d.pay_iban || "")}">
@@ -129,25 +146,34 @@ async function enhanceNav(panel) {
     const b = data?.[0]; if (!b || !panel.isConnected || panel.querySelector("[data-pay-done]")) return;
     const box = document.createElement("div"); box.dataset.payDone = "1";
     const slot = panel.querySelector("#slideSlot");
-    panel.querySelectorAll(".kv span").forEach((s) => { if (s.textContent.trim() === "À encaisser à bord") s.textContent = b.onboard_method !== "CARD" ? "À encaisser en espèces" : b.prepaid_at ? "Payé par carte" : "Carte · à payer avant le départ"; });
+    panel.querySelectorAll(".kv span").forEach((s) => { if (s.textContent.trim() === "À encaisser à bord") s.textContent = b.onboard_method !== "CARD" ? "À encaisser en espèces" : b.prepaid_at ? "Payé par carte" : farAway(b) ? "Carte · payée avant votre départ" : "Carte · payée à votre arrivée"; });
     if (b.payment_method !== "ON_BOARD" || b.onboard_method !== "CARD" || b.status === "IN_PROGRESS") { slot?.before(box); return; }
     if (b.prepaid_at) {
       box.className = "prepay ok"; box.innerHTML = `<h3>✓ Paiement reçu <span>${euro(fare(b))}</span></h3><p>Vous pouvez démarrer la course.</p>`;
       slot?.before(box); if (slot) slot.style.display = ""; return;
     }
+    const far = farAway(b), km = b.approach_km != null ? `${String(b.approach_km).replace(".", ",")} km` : "";
+    if (!far && !b.arrived_at) {   // client proche : paiement demandé à l'arrivée
+      box.className = "prepay later";
+      box.innerHTML = `<h3>Paiement par carte <small>${euro(fare(b))}</small></h3><p>Client à ${km || "moins de 8 km"} : il vous paiera à votre arrivée (bouton « Je suis arrivé »).</p>`;
+      slot?.before(box);
+      if (b.status === "DRIVER_ARRIVING" && slot) slot.style.display = "none";   // « Client à bord » seulement après l'arrivée et le paiement
+      return;
+    }
     box.className = "prepay wait";
-    box.innerHTML = `<h3>Paiement par carte <small>${euro(fare(b))}</small></h3>
-      <p>Le client paie avant le départ (Revolut ou virement instantané). Vérifiez dans votre appli bancaire que l'argent est bien arrivé, puis confirmez.</p>
+    box.innerHTML = `<h3>${far && b.status === "ACCEPTED" ? "Paiement avant de partir" : "Paiement par carte"} <small>${euro(fare(b))}</small></h3>
+      <p>${far && b.status === "ACCEPTED" ? `Client à ${km} : attendez son paiement avant de partir, pour ne pas rouler pour rien. ` : "Le client paie maintenant. "}Vérifiez dans votre appli bancaire que l'argent est bien arrivé, puis confirmez.</p>
       <button class="btn" type="button" id="payOk">J'ai reçu le paiement</button>`;
     box.querySelector("#payOk").onclick = (e) => busy(e.target, async () => {
       if (!confirm(`Confirmez-vous avoir reçu ${euro(fare(b))} sur votre compte ?`)) return;
       const { error } = await sb.rpc("confirm_prepayment", { p_booking_id: b.id });
       if (error) throw error;
-      box.className = "prepay ok"; box.innerHTML = `<h3>✓ Paiement reçu <span>${euro(fare(b))}</span></h3><p>Vous pouvez démarrer la course.</p>`;
+      box.className = "prepay ok"; box.innerHTML = `<h3>✓ Paiement reçu <span>${euro(fare(b))}</span></h3><p>${b.status === "ACCEPTED" ? "Vous pouvez partir vers le client." : "Vous pouvez démarrer la course."}</p>`;
       if (slot) slot.style.display = "";
+      if (b.status === "ACCEPTED") { const a = panel.querySelector("[data-arrive]"); if (a) a.style.display = ""; }
     });
     slot?.before(box);
-    if (b.status === "DRIVER_ARRIVING" && slot) slot.style.display = "none";   // « Client à bord » masqué tant que non payé
+    if (slot) slot.style.display = "none";   // départ (client loin) ou « Client à bord » masqués tant que non payé
   });
 }
 
