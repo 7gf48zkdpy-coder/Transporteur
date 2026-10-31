@@ -82,6 +82,13 @@ async function run() {
   finally { busy = false; if (again) { again = false; setTimeout(run, 50); } }
 }
 
+// Paiement en ligne (Stripe) retiré pour l'instant : on masque la ligne « Paiements par carte » (versements Stripe).
+function hideStripe() {
+  document.querySelectorAll(".kv > span:first-child").forEach((s) => {
+    if (["Paiements par carte", "Card payments"].includes(s.textContent.trim())) s.parentElement.style.display = "none";
+  });
+}
+
 let timer = 0;
-new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(run, 60); })
+new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(() => { hideStripe(); run(); }, 60); })
   .observe(document.body, { childList: true, subtree: true, characterData: true });
