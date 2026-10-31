@@ -4,6 +4,7 @@
 //  • Appli fermée : notification push (service worker sw.js, envoyée par la fonction ride-push).
 //  • Au retour dans l'appli, une annulation non vue des 30 dernières minutes est aussi affichée.
 import { sb, euro, esc } from "./core.js";
+import { softRefresh } from "./ride-extras.js";
 
 const page = /chauffeur/.test(location.pathname) ? "driver" : "client";
 const FIELD = page === "driver" ? "driver_user_id" : "client_user_id";
@@ -96,7 +97,7 @@ function handle(b) {
   const key = `${b.id}:${kind}:${kind === "RELEASED" ? prevDriver : ""}`;
   if (seen(key)) return;
   markSeen(key);
-  showAlert(messageFor(b, kind), () => { if (document.getElementById("tPanel") || document.getElementById("navPanel")) location.reload(); });
+  showAlert(messageFor(b, kind), () => softRefresh(1500));
 }
 
 async function start() {
