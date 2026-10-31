@@ -1,4 +1,4 @@
-// Transporteur VTC — chauffeur : ouvrir le guidage dans Waze, Google Maps ou Plans en un geste,
+// Transporteur VTC — chauffeur : ouvrir le guidage dans Waze en un geste,
 // et « Nouveau client » quand le client n'a pas encore de note.
 const css = document.createElement("style");
 css.textContent = `
@@ -35,9 +35,7 @@ function enhance(panel) {
   const ll = new URL(old.href).searchParams.get("ll");
   if (!ll) return;
   const row = document.createElement("div"); row.className = "navapps";
-  row.innerHTML = `<a class="waze" href="#" data-app="waze">${ICON.waze} Waze</a>
-    <a href="#" data-app="${isIOS ? "apple" : "gmaps"}">${ICON.map} ${isIOS ? "Plans" : "Google Maps"}</a>
-    ${isIOS ? `<a href="#" data-app="gmaps">${ICON.map} Google Maps</a>` : ""}`;
+  row.innerHTML = `<a class="waze" href="#" data-app="waze">${ICON.waze} Ouvrir dans Waze</a>`;
   row.querySelectorAll("a").forEach((a) => a.onclick = (e) => { e.preventDefault(); openApp(a.dataset.app, ll); });
   panel.querySelector(".eta").after(row);
 }
