@@ -8,7 +8,7 @@ import { sb, euro, esc } from "./core.js";
 const page = /chauffeur/.test(location.pathname) ? "driver" : "client";
 const FIELD = page === "driver" ? "driver_user_id" : "client_user_id";
 const VAPID = "BK9Vru5GJeL59MrtCJOvfmKCBkoa4I0CbUdgV1gfBh92pIq4bypAAH_xbV1rIMp-XsuOV-hEuQtNGtsOhWJvwTE";
-const REASON = { NO_SHOW: "Client absent", PAYMENT_TIMEOUT: "Paiement non effectué à temps" };
+const REASON = { NO_SHOW: "Client absent", PAYMENT_TIMEOUT: "Paiement non effectué à temps", NO_DRIVER: "Aucun chauffeur disponible" };
 const short = (s) => String(s || "").split(",")[0].trim();
 
 const css = document.createElement("style");

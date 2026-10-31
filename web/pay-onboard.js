@@ -22,7 +22,8 @@ css.textContent = `
 .prepay .rib button { margin-top: 8px; width: auto; padding: 8px 12px; font-size: 13px; }
 .prepay.ok { background: rgba(52, 211, 153, .1); border-color: rgba(52, 211, 153, .35); }
 .prepay.ok h3 { color: var(--ok); }
-.prepay.wait h3 small { color: var(--warn); font-weight: 600; font-size: 12px; }`;
+.prepay.wait h3 small { color: var(--warn); font-weight: 600; font-size: 12px; }
+#sStripe { display: none !important; }   /* paiement en ligne Stripe non branché : remplacé par Revolut / IBAN ci-dessous */`;
 document.head.appendChild(css);
 
 const copy = (text, label) => navigator.clipboard?.writeText(text).then(() => toast(`${label} copié`)).catch(() => {});
