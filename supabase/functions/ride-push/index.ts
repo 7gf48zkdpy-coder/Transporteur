@@ -8,7 +8,7 @@ let cfg: Record<string, string> | null = null;
 
 const short = (s: string | null) => String(s || "").split(",")[0].trim();
 const euro = (c: number) => (c / 100).toFixed(2).replace(".", ",") + " €";
-const REASON: Record<string, string> = { NO_SHOW: "Client absent", PAYMENT_TIMEOUT: "Paiement non effectué à temps" };
+const REASON: Record<string, string> = { NO_SHOW: "Client absent", PAYMENT_TIMEOUT: "Paiement non effectué à temps", NO_DRIVER: "Aucun chauffeur disponible" };
 
 function message(p: any, toDriver: boolean) {
   if (p.kind === "RELEASED") return { title: "⚠️ Votre chauffeur s'est désisté", body: "Nous cherchons un autre chauffeur pour vous. Ouvrez l'appli pour suivre votre course." };

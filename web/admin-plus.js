@@ -54,7 +54,7 @@ async function addRideInfo(sheet, id) {
   if (b.arrived_at) rows.push(["Chauffeur arrivé", new Date(b.arrived_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })]);
   if (b.wait_fee_cents) rows.push(["Supplément d'attente", (b.wait_fee_cents / 100).toFixed(2).replace(".", ",") + " €"]);
   if (b.status === "CANCELLED") rows.push(["Annulée par", b.cancelled_by === b.client_user_id ? "le client" : b.cancelled_by ? "le chauffeur / l'admin" : "le système"],
-    ["Motif", b.cancel_reason === "NO_SHOW" ? "Client absent" : b.cancel_reason === "PAYMENT_TIMEOUT" ? "Paiement non effectué à temps" : b.cancel_reason || "Non précisé"]);
+    ["Motif", b.cancel_reason === "NO_SHOW" ? "Client absent" : b.cancel_reason === "PAYMENT_TIMEOUT" ? "Paiement non effectué à temps" : b.cancel_reason === "NO_DRIVER" ? "Aucun chauffeur disponible (30 min)" : b.cancel_reason || "Non précisé"]);
   const ci = b.cancel_info;
   if (b.status === "CANCELLED" && ci) {
     rows.push(["Au moment de l'annulation", ci.status === "DRIVER_ARRIVING"
@@ -73,19 +73,4 @@ async function addRideInfo(sheet, id) {
 }
 
 new MutationObserver(() => { const o = $("#overlay"); if (!o) return; if (o.children.length) addButton(o); else lastRide = null; })
-  .observe(document.getElementById("overlay") || document.body, { childList: true, subtree: true });
-
-// ------------------------------------------------------------------ Revtag Revolut dans « Mon entreprise »
-// Les clients qui paient « Carte ou espèces » voient un bouton « Payer avec Revolut » qui ouvre revolut.me/<Revtag>.
-async function addRevtag(form) {
-  if (form.querySelector("[name=revtag]")) return;
-  const submit = form.querySelector("button[type=submit]");
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `<label>Revtag Revolut (paiement des clients)</label><input name="revtag" placeholder="@montag" autocomplete="off">
-    <p class="muted" style="font-size:13px;margin:6px 0 0">Visibilité du Revtag à activer dans l'appli Revolut. Laissez vide pour masquer le bouton « Payer avec Revolut ».</p>`;
-  submit.before(...wrap.childNodes);
-  const { data } = await sb.from("app_settings").select("doc").eq("id", 1).maybeSingle();
-  form.querySelector("[name=revtag]").value = data?.doc?.revtag || "";
-}
-new MutationObserver(() => { const f = document.getElementById("coForm"); if (f) addRevtag(f); })
   .observe(document.getElementById("overlay") || document.body, { childList: true, subtree: true });
