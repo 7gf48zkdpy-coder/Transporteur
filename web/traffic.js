@@ -15,7 +15,7 @@
       if (h >= 10 && h < 16.5) return 1.5;                     // journée
       return 1.3;                                              // tôt le matin / soirée
     }
-    if (h >= 14 && h < 20) return 1.8;                         // week-end après-midi
+    if (h >= 14 && h < 20) return 2.0;                         // week-end après-midi
     if (h >= 10 && h < 14) return 1.5;
     return 1.25;
   }
