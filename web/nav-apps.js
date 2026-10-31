@@ -11,23 +11,9 @@ css.textContent = `
 .rating-line.newc b { color: var(--muted, #9aa); font-weight: 600; }`;
 document.head.appendChild(css);
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const ICON = {
   waze: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C7 3 3.5 6.4 3.5 10.6c0 1.6.5 3 1.4 4.2-.3 1.1-1.1 1.9-2.1 2.3.9.6 2.2.8 3.4.5 1.1.7 2.4 1.2 3.8 1.3a2 2 0 0 0 3.9.1h.3c4.7 0 8.3-3.4 8.3-7.9S17 3 12 3Zm-3 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm6 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm-6.2 2.6h1.4c.2 1 .9 1.6 1.8 1.6s1.6-.6 1.8-1.6h1.4c-.2 1.8-1.5 3-3.2 3s-3-1.2-3.2-3Z"/></svg>`,
-  map: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14"/></svg>`,
 };
-
-// Lien vers l'appli : schéma direct (ouvre l'appli installée), sinon le lien web.
-function openApp(app, ll) {
-  const web = { waze: `https://waze.com/ul?ll=${ll}&navigate=yes`, gmaps: `https://www.google.com/maps/dir/?api=1&destination=${ll}&travelmode=driving`,
-    apple: `https://maps.apple.com/?daddr=${ll}&dirflg=d` }[app];
-  const direct = { waze: `waze://?ll=${ll}&navigate=yes`, gmaps: isIOS ? `comgooglemaps://?daddr=${ll}&directionsmode=driving` : null, apple: null }[app];
-  if (!direct) { window.open(web, "_blank"); return; }
-  const t = setTimeout(() => { if (!document.hidden) window.location.href = web; }, 1200);
-  window.addEventListener("pagehide", () => clearTimeout(t), { once: true });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(t); }, { once: true });
-  window.location.href = direct;
-}
 
 function enhance(panel) {
   const old = panel.querySelector(".eta .navbtn");
@@ -35,8 +21,8 @@ function enhance(panel) {
   const ll = new URL(old.href).searchParams.get("ll");
   if (!ll) return;
   const row = document.createElement("div"); row.className = "navapps";
-  row.innerHTML = `<a class="waze" href="#" data-app="waze">${ICON.waze} Ouvrir dans Waze</a>`;
-  row.querySelectorAll("a").forEach((a) => a.onclick = (e) => { e.preventDefault(); openApp(a.dataset.app, ll); });
+  // Lien universel Waze (ouvre l'appli Waze avec le guidage) dans un nouvel onglet : l'appli Transporteur reste sur la course.
+  row.innerHTML = `<a class="waze" target="_blank" rel="noopener" href="https://waze.com/ul?ll=${ll}&navigate=yes">${ICON.waze} Ouvrir dans Waze</a>`;
   panel.querySelector(".eta").after(row);
 }
 
