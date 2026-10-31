@@ -1,6 +1,7 @@
 // Transporteur VTC — paiement « Espèces ou Carte ».
 //  • Client : choisit Espèces ou Carte en réservant. Carte = il paie le chauffeur AVANT le départ
-//    (lien Revolut du chauffeur ou virement instantané sur son RIB), affichés dès que le chauffeur a accepté.
+//    (lien Revolut du chauffeur avec le montant pré-rempli, ou virement instantané sur son RIB), affichés dès que le chauffeur a accepté.
+//    Format du lien Revolut repris de l'ancienne appli (vérifié) : revolut.me/<Revtag>?currency=EUR&amount=<centimes>.
 //  • Chauffeur : renseigne son Revtag / RIB dans « Mon profil » ; pour une course par carte, il appuie sur
 //    « J'ai reçu le paiement » après avoir vérifié son compte. La course ne peut pas démarrer avant (bloqué aussi côté base).
 import { sb, euro, esc, toast, busy } from "./core.js";
@@ -84,7 +85,7 @@ async function enhanceClientPanel(panel) {
     box.innerHTML = `<h3>Payez avant le départ <small>${euro(fare(b))}</small></h3>
       <p>Le chauffeur démarrera la course dès qu'il aura reçu votre paiement.</p>
       ${info?.revtag ? `<a class="btn" style="background:#fff;color:#0b0b0b;box-shadow:none;font-weight:800" target="_blank" rel="noopener"
-          href="https://revolut.me/${encodeURIComponent(String(info.revtag).replace(/^@/, ""))}" data-amt="${amount}">Payer avec Revolut · ${euro(fare(b))}</a>` : ""}
+          href="https://revolut.me/${encodeURIComponent(String(info.revtag).replace(/^@/, ""))}?currency=EUR&amount=${fare(b)}" data-amt="${amount}">Payer avec Revolut · ${euro(fare(b))}</a>` : ""}
       ${info?.iban ? `<div class="rib">Virement instantané à <strong>${esc(info.holder || "")}</strong><b>${esc(info.iban)}</b>
           <button class="btn secondary" type="button" data-iban>Copier l'IBAN</button></div>` : ""}
       ${!info?.revtag && !info?.iban ? `<p>Le chauffeur vous indiquera comment payer (Revolut, virement…). Vous pouvez lui écrire avec le bouton message.</p>` : ""}`;
