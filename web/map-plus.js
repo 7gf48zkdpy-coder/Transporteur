@@ -1,6 +1,6 @@
 // Transporteur VTC — carte façon maquette (chargé juste après Leaflet, avant l'appli).
 //  1. Carte vectorielle bleu nuit comme sur les maquettes (MapLibre + OpenFreeMap, sans clé).
-//  2. Le chauffeur est une voiture vue de dessus (plus de flèche), orientée dans le sens de la marche.
+//  2. Le chauffeur est une petite berline blanche vue de dessus, orientée dans le sens de la marche.
 //  3. Les liens d'itinéraire ouvrent Waze au lieu de Google Maps.
 (function () {
   "use strict";
@@ -91,26 +91,30 @@
 
   // ---------------------------------------------------------------- 2. voiture vue de dessus
   function carSvg(body) {
-    return '<svg viewBox="0 0 64 112" aria-hidden="true">' +
-      '<ellipse cx="32" cy="58" rx="30" ry="52" fill="#000" opacity=".28"/>' +
-      '<rect x="7" y="4" width="50" height="102" rx="20" fill="' + (body || "#16224d") + '" stroke="#fff" stroke-width="4"/>' +
-      '<rect x="3" y="26" width="6" height="16" rx="3" fill="#060b1a"/><rect x="55" y="26" width="6" height="16" rx="3" fill="#060b1a"/>' +
-      '<rect x="3" y="74" width="6" height="16" rx="3" fill="#060b1a"/><rect x="55" y="74" width="6" height="16" rx="3" fill="#060b1a"/>' +
-      '<path d="M14 30 Q32 20 50 30 L47 44 Q32 39 17 44 Z" fill="#9db4ea"/>' +
-      '<rect x="17" y="47" width="30" height="26" rx="6" fill="rgba(255,255,255,.12)"/>' +
-      '<path d="M17 78 Q32 74 47 78 L49 90 Q32 96 15 90 Z" fill="#7f98d4"/>' +
-      '<rect x="12" y="7" width="10" height="4" rx="2" fill="#fff6c8"/><rect x="42" y="7" width="10" height="4" rx="2" fill="#fff6c8"/>' +
-      '<rect x="12" y="100" width="10" height="3" rx="1.5" fill="#ff5b6b"/><rect x="42" y="100" width="10" height="3" rx="1.5" fill="#ff5b6b"/></svg>';
+    var id = "g" + Math.random().toString(36).slice(2, 7);
+    return '<svg viewBox="0 0 40 80" aria-hidden="true"><defs>' +
+      '<linearGradient id="' + id + '" x1="0" x2="1"><stop offset="0" stop-color="#000" stop-opacity=".22"/><stop offset=".5" stop-color="#fff" stop-opacity=".16"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></linearGradient></defs>' +
+      '<ellipse cx="4.2" cy="27" rx="2.6" ry="1.8" fill="' + body + '" stroke="rgba(255,255,255,.85)" stroke-width="1"/>' +
+      '<ellipse cx="35.8" cy="27" rx="2.6" ry="1.8" fill="' + body + '" stroke="rgba(255,255,255,.85)" stroke-width="1"/>' +
+      '<path d="M20 2.5C29 2.5 34 6 34 15V66C34 74 29 77.5 20 77.5S6 74 6 66V15C6 6 11 2.5 20 2.5Z" fill="' + body + '" stroke="rgba(255,255,255,.9)" stroke-width="1.4"/>' +
+      '<path d="M20 2.5C29 2.5 34 6 34 15V66C34 74 29 77.5 20 77.5S6 74 6 66V15C6 6 11 2.5 20 2.5Z" fill="url(#' + id + ')"/>' +
+      '<path d="M9.5 25Q20 19 30.5 25L28.6 34Q20 31.5 11.4 34Z" fill="#0d1526"/>' +
+      '<path d="M11 26.2Q20 21.6 29 26.2" stroke="rgba(150,185,255,.45)" stroke-width="1" fill="none"/>' +
+      '<rect x="11.6" y="35" width="16.8" height="20" rx="3.5" fill="#000" opacity=".12"/>' +
+      '<path d="M11.4 57Q20 59.5 28.6 57L29.6 64.5Q20 68 10.4 64.5Z" fill="#0d1526"/>' +
+      '<path d="M8.6 30 9.8 56M31.4 30 30.2 56" stroke="#0d1526" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>' +
+      '<rect x="9" y="4.6" width="6" height="2.2" rx="1.1" fill="#fffbe6"/><rect x="25" y="4.6" width="6" height="2.2" rx="1.1" fill="#fffbe6"/>' +
+      '<rect x="9" y="74" width="6" height="1.8" rx=".9" fill="#ff4d5e"/><rect x="25" y="74" width="6" height="1.8" rx=".9" fill="#ff4d5e"/></svg>';
   }
   var divIcon = L.divIcon;
   L.divIcon = function (opts) {
     var html = opts && typeof opts.html === "string" ? opts.html : "";
     var body = null;
-    if (html.indexOf('class="me-dot"') !== -1) body = "#16224d";                      // chauffeur (appli client et chauffeur)
+    if (html.indexOf('class="me-dot"') !== -1) body = "#f4f6fb";                      // chauffeur (appli client et chauffeur)
     var mk = html.match(/class="car-mk" style="background:\s*([^";]+)/);              // voitures de la carte admin
     if (mk) body = mk[1].trim();
     if (!body) return divIcon.apply(this, arguments);
-    return divIcon({ className: "", iconSize: [30, 52], iconAnchor: [15, 26], html: '<div class="car-top">' + carSvg(body) + "</div>" });
+    return divIcon({ className: "", iconSize: [22, 44], iconAnchor: [11, 22], html: '<div class="car-top">' + carSvg(body) + "</div>" });
   };
 
   // Orientation : cap calculé entre deux positions successives (fonctionne même sans boussole).
