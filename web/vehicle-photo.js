@@ -82,6 +82,7 @@ async function enhanceVehicleRow(row) {
   const v = await myVehicle();
   const vic = row.querySelector(".vic");
   if (v?.photo_url && vic) { vic.className = "veh-thumb"; vic.removeAttribute("style"); vic.innerHTML = `<img src="${esc(v.photo_url)}" alt="">`; }
+  else if (v && vic) vic.remove();                                // pas de vraie photo → pas d'image du tout
   const smalls = row.querySelectorAll(".body small");          // dernière ligne = immatriculation → pastille
   const plate = smalls[smalls.length - 1];
   if (smalls.length > 1 && plate) { const b = document.createElement("span"); b.className = "veh-plate"; b.textContent = plate.textContent; plate.replaceWith(b); }
@@ -101,7 +102,8 @@ async function enhanceClientRide(panel) {
     byPlate.set(plate, sb.from("vehicles").select("photo_url").eq("registration_number", plate).limit(1).then(({ data }) => data?.[0]?.photo_url || null));
   }
   const url = await byPlate.get(plate);
-  if (!url || !icon.isConnected) return;
+  if (!icon.isConnected) return;
+  if (!url) { icon.remove(); return; }                             // pas de vraie photo → pas d'image du tout
   const thumb = document.createElement("div");
   thumb.className = "veh-thumb";
   thumb.innerHTML = `<img src="${esc(url)}" alt="Véhicule du chauffeur">`;
