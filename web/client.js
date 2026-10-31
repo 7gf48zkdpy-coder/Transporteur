@@ -134,7 +134,7 @@ function bookingForm() {
       <button class="btn" id="quoteBtn">${t("seePrices")}</button>
     </div>
     <div id="quotes"></div>
-    <p class="center muted" style="margin-top:20px"><a href="chauffeur.html">${w("driverSpace")}</a></p>${legalLinks()}`;
+    ${legalLinks()}`;
 
   formMap = makeMap($("#bkMap")); formLayer = null; formMarks = [];
   const drawFormRoute = async () => {
