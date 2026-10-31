@@ -58,6 +58,12 @@ function askReason(title, reasons, confirmLabel, note = "") {
 const CLIENT_REASONS = ["Le chauffeur met trop de temps", "J'ai changé d'avis", "Erreur d'adresse ou d'horaire", "Le prix est trop élevé", "J'ai trouvé un autre moyen de transport", "Autre"];
 const DRIVER_REASONS = ["Client injoignable", "Problème avec le véhicule", "Trop loin / trop de trafic", "Urgence personnelle", "Adresse de prise en charge introuvable", "Autre"];
 
+// Après une annulation, l'appli revient d'elle-même à l'accueil (temps réel). On ne recharge la page
+// (écran de lancement) que si l'écran de course est encore affiché après quelques secondes.
+export function softRefresh(delay = 3500) {
+  setTimeout(() => { if (document.getElementById("tPanel") || document.getElementById("navPanel")) location.reload(); }, delay);
+}
+
 async function activeBooking(field) {
   const id = await uid(); if (!id) return null;
   const { data } = await sb.from("bookings").select("*").eq(field, id).in("status", ["REQUESTED", "ACCEPTED", "DRIVER_ARRIVING", "IN_PROGRESS"])
@@ -74,10 +80,10 @@ document.addEventListener("click", async (e) => {
   if (clientCancel) {
     const { data: t } = await sb.rpc("cancel_preview", { p_booking_id: b.id });
     const reason = await askReason("Annuler la course ?", CLIENT_REASONS, t?.fee_cents ? `Annuler (frais ${euro(t.fee_cents)})` : "Annuler la course", feeNote(t)); if (!reason) return;
-    busy(null, async () => { await call("booking-cancel", { bookingId: b.id, action: "cancel", reason }); toast("Course annulée"); setTimeout(() => location.reload(), 600); });
+    busy(null, async () => { await call("booking-cancel", { bookingId: b.id, action: "cancel", reason }); toast("Course annulée"); softRefresh(); });
   } else {
     const reason = await askReason("Arrêter cette course ?", DRIVER_REASONS, "Arrêter la course"); if (!reason) return;
-    busy(null, async () => { await call("booking-cancel", { bookingId: b.id, action: "release", reason }); toast("Course proposée à un autre chauffeur"); setTimeout(() => location.reload(), 600); });
+    busy(null, async () => { await call("booking-cancel", { bookingId: b.id, action: "release", reason }); toast("Course proposée à un autre chauffeur"); softRefresh(); });
   }
 }, true);
 
