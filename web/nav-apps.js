@@ -1,5 +1,5 @@
 // Transporteur VTC — chauffeur : ouvrir le guidage dans Waze en un geste,
-// et « Nouveau client » quand le client n'a pas encore de note.
+// et « Nouveau client » quand le client n'a pas encore de note. L'entrée « Administration » est retirée (appli admin séparée).
 const css = document.createElement("style");
 css.textContent = `
 .navapps { display: flex; gap: 8px; margin: 10px 0 4px; }
@@ -8,7 +8,8 @@ css.textContent = `
 .navapps a.waze { background: #33ccff; color: #05202b; border-color: #33ccff; }
 .navapps a svg { width: 18px; height: 18px; }
 #navPanel .eta .navbtn { display: none; }
-.rating-line.newc b { color: var(--muted, #9aa); font-weight: 600; }`;
+.rating-line.newc b { color: var(--muted, #9aa); font-weight: 600; }
+[data-v="admin"], #sAdmin { display: none !important; }   /* l'administration se fait dans l'appli séparée « Transporteur Admin » (admin.html) */`;
 document.head.appendChild(css);
 
 const ICON = {
