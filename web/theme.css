@@ -1,0 +1,108 @@
+/* Transporteur VTC — thème « Noir élégant » (sans bleu) : noir profond, graphite, blanc.
+   Chargé en dernier sur toutes les pages : il remplace les couleurs sans toucher aux fonctionnalités. */
+:root {
+  --bg: #050506; --bg2: #0e0e10; --card: #111113; --card2: #17171a; --line: #232327; --line2: #303036;
+  --text: #f5f5f7; --muted: #8d8d95; --blue: #f5f5f7; --blue2: #d8d8de; --glow: rgba(255, 255, 255, .10);
+  --ink: #0a0a0b; --radius: 18px;
+}
+html { background: var(--bg); }
+body { background: radial-gradient(110% 55% at 50% -12%, #1c1c20 0%, rgba(5, 5, 6, 0) 62%), var(--bg) !important; background-attachment: fixed !important; letter-spacing: -.005em; }
+a { color: var(--text); }
+header.top { background: linear-gradient(#050506 62%, rgba(5, 5, 6, 0)) !important; }
+header.top img, .drawer .logo { box-shadow: 0 6px 20px rgba(0, 0, 0, .6) !important; }
+h1, h2, .section-title, .back, .sheet-head h1 { letter-spacing: -.02em; }
+
+/* cartes : graphite mat, liseré fin */
+.card { background: linear-gradient(180deg, #17171a, #111113) !important; border-color: #232327 !important; }
+
+/* boutons : blanc sur noir */
+.btn { background: #f5f5f7 !important; color: var(--ink) !important; box-shadow: 0 6px 20px rgba(0, 0, 0, .45) !important; }
+.btn svg.i { color: var(--ink); }
+.btn.secondary, .btn.small.secondary { background: #1a1a1d !important; color: var(--text) !important; border: 1px solid #2a2a2f !important; box-shadow: none !important; }
+.btn.secondary svg.i { color: var(--text); }
+.btn.danger { background: transparent !important; color: #ff6b6b !important; border: 1px solid #4a2326 !important; box-shadow: none !important; }
+.btn .arrows { background: var(--ink) !important; color: #fff !important; }
+.navbtn { background: #1f1f23 !important; color: var(--text) !important; }
+.link { color: var(--text); }
+
+/* pastilles, onglets, interrupteurs */
+.section-title .count, .tabbar .nb, .drawer nav .count, .iconbtn .dotn { background: #f5f5f7 !important; color: var(--ink) !important; }
+.tabs button.on, .chip.on, .seg button.on, .filters .chip.on { background: #f5f5f7 !important; color: var(--ink) !important; border-color: #f5f5f7 !important; }
+.badge { background: #1d1d21; color: #d6d6dc; }
+input.tg, .switch input { background: #2c2c31 !important; }
+input.tg:checked, .switch input:checked { background: #f5f5f7 !important; }
+input.tg:checked::after, .switch input:checked::after { background: var(--ink) !important; }
+input:focus, select:focus, textarea:focus { outline-color: #8d8d95 !important; }
+.tabbar { background: rgba(8, 8, 9, .94) !important; }
+.tabbar button.on { color: #fff !important; }
+.tabbar button.on svg.i { filter: none !important; fill: rgba(255, 255, 255, .14) !important; }
+.list-row .end { color: var(--text) !important; }
+.drawer { background: linear-gradient(180deg, #141417, #060607) !important; }
+.drawer nav button { color: #c8c8ce !important; }
+.drawer nav button.on { background: rgba(255, 255, 255, .07) !important; box-shadow: inset 3px 0 0 #f5f5f7 !important; }
+.suggest li:hover, .suggest li.on { background: #1f1f23 !important; }
+.vehicle.on { border-color: #f5f5f7 !important; box-shadow: 0 0 0 1px #f5f5f7 inset !important; }
+.route div::before { background: #f5f5f7 !important; }
+.route div + div::before { background: #8d8d95 !important; }
+.stars button { color: #34343a; }
+.spinner { border-top-color: #f5f5f7 !important; }
+.turn svg.i { color: #fff !important; }
+.nav-top .backb, .fabs button, .turn, .map-label { background: rgba(17, 17, 19, .94) !important; }
+.avatar { background: linear-gradient(135deg, #3a3a40, #17171a) !important; }
+.avatar.lg { box-shadow: 0 0 0 4px rgba(255, 255, 255, .12) !important; }
+.avatar .ok { background: #f5f5f7 !important; color: var(--ink) !important; }
+.avatar.plain { background: #1a1a1d !important; color: #d8d8de !important; }
+.metacard .meta svg.i { color: #a8a8b0 !important; }
+
+/* graphiques revenus */
+.chart div, .chartbox .chart b, .bars7 i { background: linear-gradient(180deg, #ffffff, #9a9aa2) !important; box-shadow: none !important; }
+.chartbox .chart { background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), rgba(255, 255, 255, .07) calc(25% - 1px) 25%) !important; }
+
+/* course terminée, compte à rebours, animations */
+.done .check { border-color: #f5f5f7 !important; color: #fff !important; box-shadow: 0 0 40px rgba(255, 255, 255, .12) !important; }
+#cdArc { stroke: #f5f5f7 !important; }
+.countdown circle:first-child { stroke: #26262b !important; }
+.celebrate { background: radial-gradient(70% 45% at 50% 42%, rgba(255, 255, 255, .10), rgba(5, 5, 6, .97) 70%) !important; }
+.celebrate .ring { background: radial-gradient(circle, #ffffff, #b9b9c0) !important; box-shadow: 0 0 60px rgba(255, 255, 255, .35) !important; }
+.celebrate .ring svg { stroke: var(--ink) !important; }
+.celebrate .ring::before, .celebrate .ring::after { border-color: rgba(255, 255, 255, .45) !important; }
+.celebrate p { color: #b4b4bb !important; }
+.confetti { filter: grayscale(1); }
+.slide { background: linear-gradient(180deg, #ffffff, #dcdce1) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .5) !important; }
+.slide .lbl { background: linear-gradient(90deg, rgba(10,10,11,.7) 0%, #0a0a0b 40%, rgba(10,10,11,.7) 80%) !important; background-size: 200% 100% !important; -webkit-background-clip: text !important; background-clip: text !important; }
+.slide.done .lbl { -webkit-text-fill-color: var(--ink) !important; }
+.slide .fill { background: rgba(0, 0, 0, .08) !important; }
+.slide .knob { background: var(--ink) !important; color: #fff !important; }
+
+/* messagerie */
+.bubble.me { background: #f5f5f7 !important; color: var(--ink) !important; }
+.chat-form button { background: #f5f5f7 !important; color: var(--ink) !important; }
+
+/* écran de chargement */
+#splash { background: radial-gradient(80% 50% at 50% 35%, #202024 0%, #050506 70%) !important; }
+#splash img, .hero img { box-shadow: 0 0 50px rgba(255, 255, 255, .10) !important; }
+#splash p { color: #a8a8b0 !important; }
+#splash .bar i { background: #f5f5f7 !important; }
+
+/* carte : marqueurs et étiquettes */
+#map, .map, .leaflet-container { background: #141416 !important; }
+.me-dot { box-shadow: 0 0 0 8px rgba(255, 255, 255, .18), 0 4px 14px rgba(0, 0, 0, .5) !important; }
+.me-dot svg { fill: var(--ink) !important; }
+.pin { background: #f5f5f7 !important; border-color: var(--ink) !important; }
+.pin.start { background: var(--ink) !important; border-color: #f5f5f7 !important; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #17171a !important; }
+
+/* modules ajoutés (boutons d'appli de navigation, raisons, plaque, alertes) */
+.navapps a.waze { background: #f5f5f7 !important; color: var(--ink) !important; border-color: #f5f5f7 !important; }
+.waze-link { background: #f5f5f7 !important; color: var(--ink) !important; }
+.reasons button.on { border-color: #f5f5f7 !important; background: rgba(255, 255, 255, .08) !important; }
+.veh-plate { background: #1f1f23 !important; color: #e6e6ea !important; }
+.pushbar .on { background: #f5f5f7 !important; color: var(--ink) !important; }
+
+/* admin */
+.kpi::after { background: radial-gradient(circle, rgba(255, 255, 255, .08), transparent 70%) !important; }
+.kpi .ic, .empty-hero .art { background: rgba(255, 255, 255, .06) !important; color: #e6e6ea !important; box-shadow: none !important; }
+.dot-on { background: #f5f5f7 !important; }
+
+/* page de suivi partagée */
+.st { background: rgba(255, 255, 255, .08) !important; color: #e6e6ea !important; }

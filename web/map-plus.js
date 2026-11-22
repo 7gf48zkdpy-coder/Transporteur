@@ -1,5 +1,5 @@
 // Transporteur VTC — carte façon maquette (chargé juste après Leaflet, avant l'appli).
-//  1. Carte vectorielle bleu nuit comme sur les maquettes (MapLibre + OpenFreeMap, sans clé).
+//  1. Carte vectorielle noir et blanc (MapLibre + OpenFreeMap, sans clé).
 //  2. Le chauffeur est une petite berline blanche vue de dessus, orientée dans le sens de la marche.
 //  3. Les liens d'itinéraire ouvrent Waze au lieu de Google Maps.
 (function () {
@@ -26,20 +26,21 @@
   try { if (!localStorage.getItem("lang")) localStorage.setItem("lang", "fr"); } catch (e) { /* stockage indisponible */ }
 
   var css = document.createElement("style");
-  css.textContent = ".leaflet-container{background:#0f1b2e!important}" +
-    ".leaflet-control-attribution{background:rgba(10,20,49,.7)!important;color:#6f82b5!important;font-size:9px!important}" +
-    ".leaflet-control-attribution a{color:#8597c7!important}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}";
+  css.textContent = ".leaflet-container{background:#141416!important}" +
+    ".leaflet-control-attribution{background:rgba(10,10,11,.7)!important;color:#7a7a82!important;font-size:9px!important}" +
+    ".leaflet-control-attribution a{color:#9a9aa2!important}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}";
   document.head.appendChild(css);
 
   var L = window.L;
   if (!L) return;
 
   // ---------------------------------------------------------------- 1. fond de carte
-  // Carte vectorielle bleu nuit dessinée sur mesure (MapLibre + tuiles OpenFreeMap, gratuites, sans clé).
+  // Carte vectorielle dessinée sur mesure (MapLibre + tuiles OpenFreeMap, gratuites, sans clé).
   // Si le téléphone ne gère pas WebGL ou si MapLibre ne charge pas, repli sur le fond sombre Esri.
   var ATTR = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
-  var C = { bg: "#0f1b2e", park: "#112235", water: "#0c2550", building: "#15233a", minor: "#1d2b40", mid: "#25354d",
-            major: "#2e4060", motor: "#4a5b78", label: "#7e8ba5", place: "#c9d1e0", halo: "#0f1b2e", waterLabel: "#5671a8" };
+  // Noir et blanc : fond sombre, rues et noms en gris clair (thème « Noir élégant »).
+  var C = { bg: "#141416", park: "#18191b", water: "#0b0b0d", building: "#1c1c1f", minor: "#2b2b30", mid: "#3a3a40",
+            major: "#55555d", motor: "#7c7c85", label: "#a3a3ab", place: "#ececf0", halo: "#141416", waterLabel: "#6e6e77" };
   var Z = function (a, b) { return ["interpolate", ["exponential", 1.5], ["zoom"], 10, a, 18, b]; };
   var NAME = ["coalesce", ["get", "name:fr"], ["get", "name"]];
   var cls = function (list) { return ["match", ["get", "class"], list, true, false]; };
@@ -89,6 +90,14 @@
       { maxZoom: 20, maxNativeZoom: 16, attribution: "Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap" });
   };
 
+  // Itinéraires et marqueurs : plus de bleu, tracé blanc.
+  var BLUES = /^#(1f7aff|3d8bff|2b84ff|4a93ff|1567f0)$/i;
+  var polyline = L.polyline;
+  L.polyline = function (pts, o) {
+    if (o && typeof o.color === "string" && BLUES.test(o.color)) { o = Object.assign({}, o, { color: o.opacity && o.opacity < .5 ? "#ffffff" : "#f5f5f7" }); if (o.opacity && o.opacity < .5) o.opacity = .12; }
+    return polyline.call(this, pts, o);
+  };
+
   // ---------------------------------------------------------------- 2. voiture vue de dessus
   function carSvg(body) {
     var id = "g" + Math.random().toString(36).slice(2, 7);
@@ -98,11 +107,11 @@
       '<ellipse cx="35.8" cy="27" rx="2.6" ry="1.8" fill="' + body + '" stroke="rgba(255,255,255,.85)" stroke-width="1"/>' +
       '<path d="M20 2.5C29 2.5 34 6 34 15V66C34 74 29 77.5 20 77.5S6 74 6 66V15C6 6 11 2.5 20 2.5Z" fill="' + body + '" stroke="rgba(255,255,255,.9)" stroke-width="1.4"/>' +
       '<path d="M20 2.5C29 2.5 34 6 34 15V66C34 74 29 77.5 20 77.5S6 74 6 66V15C6 6 11 2.5 20 2.5Z" fill="url(#' + id + ')"/>' +
-      '<path d="M9.5 25Q20 19 30.5 25L28.6 34Q20 31.5 11.4 34Z" fill="#0d1526"/>' +
-      '<path d="M11 26.2Q20 21.6 29 26.2" stroke="rgba(150,185,255,.45)" stroke-width="1" fill="none"/>' +
+      '<path d="M9.5 25Q20 19 30.5 25L28.6 34Q20 31.5 11.4 34Z" fill="#141417"/>' +
+      '<path d="M11 26.2Q20 21.6 29 26.2" stroke="rgba(255,255,255,.35)" stroke-width="1" fill="none"/>' +
       '<rect x="11.6" y="35" width="16.8" height="20" rx="3.5" fill="#000" opacity=".12"/>' +
-      '<path d="M11.4 57Q20 59.5 28.6 57L29.6 64.5Q20 68 10.4 64.5Z" fill="#0d1526"/>' +
-      '<path d="M8.6 30 9.8 56M31.4 30 30.2 56" stroke="#0d1526" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>' +
+      '<path d="M11.4 57Q20 59.5 28.6 57L29.6 64.5Q20 68 10.4 64.5Z" fill="#141417"/>' +
+      '<path d="M8.6 30 9.8 56M31.4 30 30.2 56" stroke="#141417" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>' +
       '<rect x="9" y="4.6" width="6" height="2.2" rx="1.1" fill="#fffbe6"/><rect x="25" y="4.6" width="6" height="2.2" rx="1.1" fill="#fffbe6"/>' +
       '<rect x="9" y="74" width="6" height="1.8" rx=".9" fill="#ff4d5e"/><rect x="25" y="74" width="6" height="1.8" rx=".9" fill="#ff4d5e"/></svg>';
   }
@@ -112,7 +121,7 @@
     var body = null;
     if (html.indexOf('class="me-dot"') !== -1) body = "#f4f6fb";                      // chauffeur (appli client et chauffeur)
     var mk = html.match(/class="car-mk" style="background:\s*([^";]+)/);              // voitures de la carte admin
-    if (mk) body = mk[1].trim();
+    if (mk) body = BLUES.test(mk[1].trim()) ? "#f4f6fb" : mk[1].trim();
     if (!body) return divIcon.apply(this, arguments);
     return divIcon({ className: "", iconSize: [22, 44], iconAnchor: [11, 22], html: '<div class="car-top">' + carSvg(body) + "</div>" });
   };
