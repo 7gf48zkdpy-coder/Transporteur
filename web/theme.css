@@ -4,21 +4,34 @@
   --bg: #050506; --bg2: #0e0e10; --card: #111113; --card2: #17171a; --line: #232327; --line2: #303036;
   --text: #f5f5f7; --muted: #8d8d95; --blue: #f5f5f7; --blue2: #d8d8de; --glow: rgba(255, 255, 255, .10);
   --ink: #0a0a0b; --radius: 18px;
+  --glowtop: #1c1c20; --card-a: #17171a; --card-b: #111113; --cardline: #232327; --tab: rgba(8, 8, 9, .94);
+  --drawer-a: #141417; --drawer-b: #060607; --sec: #1a1a1d; --secline: #2a2a2f;
 }
+/* Couleurs de fond au choix (Paramètres → Couleur de fond) */
+html[data-bg="graphite"] { --bg: #161618; --bg2: #1e1e21; --card: #1f1f23; --card2: #26262b; --line: #313137; --line2: #3c3c43;
+  --glowtop: #2e2e33; --card-a: #26262b; --card-b: #1f1f23; --cardline: #34343a; --tab: rgba(22, 22, 24, .95); --drawer-a: #26262b; --drawer-b: #161618; --sec: #2a2a30; --secline: #3a3a41; }
+html[data-bg="nuit"] { --bg: #050a18; --bg2: #0b1428; --card: #0d1730; --card2: #111d3a; --line: #1b2948; --line2: #24365c;
+  --glowtop: #0e2250; --card-a: #111d3a; --card-b: #0d1730; --cardline: #1b2948; --tab: rgba(6, 11, 26, .95); --drawer-a: #0a1636; --drawer-b: #050a18; --sec: #13213f; --secline: #22345a; }
+html[data-bg="emeraude"] { --bg: #04100c; --bg2: #081913; --card: #0b1c16; --card2: #10251d; --line: #1b3a2e; --line2: #25493b;
+  --glowtop: #0f3326; --card-a: #10251d; --card-b: #0b1c16; --cardline: #1b3a2e; --tab: rgba(5, 16, 12, .95); --drawer-a: #0f2a20; --drawer-b: #04100c; --sec: #12291f; --secline: #234536; }
+html[data-bg="bordeaux"] { --bg: #12050a; --bg2: #1c0a11; --card: #210c14; --card2: #2a111b; --line: #3e1b29; --line2: #4d2434;
+  --glowtop: #3a1020; --card-a: #2a111b; --card-b: #210c14; --cardline: #3e1b29; --tab: rgba(18, 5, 10, .95); --drawer-a: #2c0f1b; --drawer-b: #12050a; --sec: #2e1420; --secline: #4a2232; }
+html[data-bg="prune"] { --bg: #0c0614; --bg2: #140b1f; --card: #180e25; --card2: #1f1430; --line: #2f2245; --line2: #3b2c55;
+  --glowtop: #26163f; --card-a: #1f1430; --card-b: #180e25; --cardline: #2f2245; --tab: rgba(12, 6, 20, .95); --drawer-a: #22143a; --drawer-b: #0c0614; --sec: #22173a; --secline: #3a2b55; }
 html { background: var(--bg); }
-body { background: radial-gradient(110% 55% at 50% -12%, #1c1c20 0%, rgba(5, 5, 6, 0) 62%), var(--bg) !important; background-attachment: fixed !important; letter-spacing: -.005em; }
+body { background: radial-gradient(110% 55% at 50% -12%, var(--glowtop) 0%, transparent 62%), var(--bg) !important; background-attachment: fixed !important; letter-spacing: -.005em; }
 a { color: var(--text); }
-header.top { background: linear-gradient(#050506 62%, rgba(5, 5, 6, 0)) !important; }
+header.top { background: linear-gradient(var(--bg) 62%, transparent) !important; }
 header.top img, .drawer .logo { box-shadow: 0 6px 20px rgba(0, 0, 0, .6) !important; }
 h1, h2, .section-title, .back, .sheet-head h1 { letter-spacing: -.02em; }
 
 /* cartes : graphite mat, liseré fin */
-.card { background: linear-gradient(180deg, #17171a, #111113) !important; border-color: #232327 !important; }
+.card { background: linear-gradient(180deg, var(--card-a), var(--card-b)) !important; border-color: var(--cardline) !important; }
 
 /* boutons : blanc sur noir */
 .btn { background: #f5f5f7 !important; color: var(--ink) !important; box-shadow: 0 6px 20px rgba(0, 0, 0, .45) !important; }
 .btn svg.i { color: var(--ink); }
-.btn.secondary, .btn.small.secondary { background: #1a1a1d !important; color: var(--text) !important; border: 1px solid #2a2a2f !important; box-shadow: none !important; }
+.btn.secondary, .btn.small.secondary { background: var(--sec) !important; color: var(--text) !important; border: 1px solid var(--secline) !important; box-shadow: none !important; }
 .btn.secondary svg.i { color: var(--text); }
 .btn.danger { background: transparent !important; color: #ff6b6b !important; border: 1px solid #4a2326 !important; box-shadow: none !important; }
 .btn .arrows { background: var(--ink) !important; color: #fff !important; }
@@ -33,11 +46,11 @@ input.tg, .switch input { background: #2c2c31 !important; }
 input.tg:checked, .switch input:checked { background: #f5f5f7 !important; }
 input.tg:checked::after, .switch input:checked::after { background: var(--ink) !important; }
 input:focus, select:focus, textarea:focus { outline-color: #8d8d95 !important; }
-.tabbar { background: rgba(8, 8, 9, .94) !important; }
+.tabbar { background: var(--tab) !important; }
 .tabbar button.on { color: #fff !important; }
 .tabbar button.on svg.i { filter: none !important; fill: rgba(255, 255, 255, .14) !important; }
 .list-row .end { color: var(--text) !important; }
-.drawer { background: linear-gradient(180deg, #141417, #060607) !important; }
+.drawer { background: linear-gradient(180deg, var(--drawer-a), var(--drawer-b)) !important; }
 .drawer nav button { color: #c8c8ce !important; }
 .drawer nav button.on { background: rgba(255, 255, 255, .07) !important; box-shadow: inset 3px 0 0 #f5f5f7 !important; }
 .suggest li:hover, .suggest li.on { background: #1f1f23 !important; }
@@ -79,13 +92,13 @@ input:focus, select:focus, textarea:focus { outline-color: #8d8d95 !important; }
 .chat-form button { background: #f5f5f7 !important; color: var(--ink) !important; }
 
 /* écran de chargement */
-#splash { background: radial-gradient(80% 50% at 50% 35%, #202024 0%, #050506 70%) !important; }
+#splash { background: radial-gradient(80% 50% at 50% 35%, var(--glowtop) 0%, var(--bg) 70%) !important; }
 #splash img, .hero img { box-shadow: 0 0 50px rgba(255, 255, 255, .10) !important; }
 #splash p { color: #a8a8b0 !important; }
 #splash .bar i { background: #f5f5f7 !important; }
 
 /* carte : marqueurs et étiquettes */
-#map, .map, .leaflet-container { background: #141416 !important; }
+#map, .map, .leaflet-container { background: #252c37 !important; }
 .me-dot { box-shadow: 0 0 0 8px rgba(255, 255, 255, .18), 0 4px 14px rgba(0, 0, 0, .5) !important; }
 .me-dot svg { fill: var(--ink) !important; }
 .pin { background: #f5f5f7 !important; border-color: var(--ink) !important; }
@@ -106,3 +119,10 @@ input:focus, select:focus, textarea:focus { outline-color: #8d8d95 !important; }
 
 /* page de suivi partagée */
 .st { background: rgba(255, 255, 255, .08) !important; color: #e6e6ea !important; }
+
+/* sélecteur de couleur de fond */
+.bgpick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 6px 0 4px; }
+.bgpick button { border: 1px solid var(--line2); border-radius: 16px; padding: 14px 6px 10px; background: var(--card2); color: var(--text); font: 600 13px/1.2 inherit; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.bgpick button i { width: 44px; height: 44px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); display: block; }
+.bgpick button.on { border-color: #f5f5f7; box-shadow: 0 0 0 1px #f5f5f7 inset; }
+.bgdot { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .35); display: inline-block; vertical-align: -4px; margin-right: 6px; }
