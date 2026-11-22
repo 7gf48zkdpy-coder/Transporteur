@@ -1,5 +1,5 @@
 // Transporteur VTC — carte façon maquette (chargé juste après Leaflet, avant l'appli).
-//  1. Carte vectorielle noir et blanc (MapLibre + OpenFreeMap, sans clé).
+//  1. Carte vectorielle aux couleurs de Waze (mode nuit) (MapLibre + OpenFreeMap, sans clé).
 //  2. Le chauffeur est une petite berline blanche vue de dessus, orientée dans le sens de la marche.
 //  3. Les liens d'itinéraire ouvrent Waze au lieu de Google Maps.
 (function () {
@@ -26,7 +26,7 @@
   try { if (!localStorage.getItem("lang")) localStorage.setItem("lang", "fr"); } catch (e) { /* stockage indisponible */ }
 
   var css = document.createElement("style");
-  css.textContent = ".leaflet-container{background:#141416!important}" +
+  css.textContent = ".leaflet-container{background:#252c37!important}" +
     ".leaflet-control-attribution{background:rgba(10,10,11,.7)!important;color:#7a7a82!important;font-size:9px!important}" +
     ".leaflet-control-attribution a{color:#9a9aa2!important}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}";
   document.head.appendChild(css);
@@ -38,9 +38,9 @@
   // Carte vectorielle dessinée sur mesure (MapLibre + tuiles OpenFreeMap, gratuites, sans clé).
   // Si le téléphone ne gère pas WebGL ou si MapLibre ne charge pas, repli sur le fond sombre Esri.
   var ATTR = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
-  // Noir et blanc : fond sombre, rues et noms en gris clair (thème « Noir élégant »).
-  var C = { bg: "#141416", park: "#18191b", water: "#0b0b0d", building: "#1c1c1f", minor: "#2b2b30", mid: "#3a3a40",
-            major: "#55555d", motor: "#7c7c85", label: "#a3a3ab", place: "#ececf0", halo: "#141416", waterLabel: "#6e6e77" };
+  // Couleurs façon Waze (mode nuit) : fond ardoise, rues grises, axes jaunes, autoroutes orange, eau bleue, parcs verts.
+  var C = { bg: "#252c37", park: "#26392f", water: "#173152", building: "#2c3441", minor: "#566275", mid: "#c8ad52",
+            major: "#e6b93e", motor: "#e8893a", casing: "#1a1f27", label: "#d7dde7", place: "#ffffff", halo: "#1d232c", waterLabel: "#7fa3cf" };
   var Z = function (a, b) { return ["interpolate", ["exponential", 1.5], ["zoom"], 10, a, 18, b]; };
   var NAME = ["coalesce", ["get", "name:fr"], ["get", "name"]];
   var cls = function (list) { return ["match", ["get", "class"], list, true, false]; };
@@ -54,6 +54,8 @@
       { id: "wood", type: "fill", source: "omt", "source-layer": "landcover", filter: cls(["wood", "grass"]), paint: { "fill-color": C.park, "fill-opacity": .7 } },
       { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": C.water } },
       { id: "building", type: "fill", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-color": C.building, "fill-opacity": .8 } },
+      { id: "case-main", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["tertiary", "secondary", "primary", "trunk", "motorway"]),
+        layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.casing, "line-width": Z(2.2, 21) } },
       { id: "road-minor", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["minor", "service"]), minzoom: 12,
         layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": C.minor, "line-width": Z(.4, 9) } },
       { id: "road-mid", type: "line", source: "omt", "source-layer": "transportation", filter: cls(["tertiary", "secondary"]),
