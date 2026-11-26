@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gestion VTC</title>
+<meta name="theme-color" content="#120c10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gestion VTC">
+<link rel="manifest" href="manifest-gestion.json">
+<link rel="apple-touch-icon" id="touchicon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Gestion VTC — même univers que Finly : fond prune très sombre, cartes chaudes, dégradé orange → rose.
+   Tout est calculé sur le téléphone. Les montants d'impôts sont des estimations pour savoir quoi mettre de côté. */
+:root{
+  --bg:#120c10;--card:#1c1317;--card2:#24181d;--line:rgba(255,170,120,.13);--ink:#fbf4f1;--sec:#b7a3a8;--mute:#7f6c72;
+  --acc:#ff9f43;--pink:#f0588f;--green:#4fd18b;--red:#ff6b5e;--grad:linear-gradient(135deg,#ffb347 0%,#ff7a59 55%,#f0588f 100%);
+  --disp:"Space Grotesk",-apple-system,system-ui,sans-serif;--font:-apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+  --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{margin:0;min-height:100dvh;color:var(--ink);font:16px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow-x:clip;
+  background:radial-gradient(120% 55% at 100% -5%,rgba(240,88,143,.16),transparent 60%),radial-gradient(90% 45% at 0% 0%,rgba(255,159,67,.12),transparent 55%),var(--bg);background-attachment:fixed}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.025em;line-height:1.1}
+p{margin:0}
+.hide{display:none!important}
+.num{font-family:var(--disp);font-feature-settings:"tnum";letter-spacing:-.03em}
+.lbl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);font-weight:700}
+.statusbar{position:fixed;top:0;left:0;right:0;height:var(--st);background:var(--bg);z-index:30}
+
+.wrap{max-width:560px;margin:0 auto;padding:calc(var(--st) + 12px) 16px calc(110px + var(--sb))}
+.top{display:flex;align-items:center;justify-content:space-between;padding:6px 0 14px}
+.brand{display:flex;align-items:center;gap:12px;font-family:var(--disp);font-weight:700;font-size:24px}
+.brand i{width:42px;height:42px;border-radius:12px;background:var(--grad);display:grid;place-items:center;font-style:normal;font-size:22px;color:#2a0f14;box-shadow:0 6px 18px -6px rgba(255,122,89,.6)}
+.brand b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.round{width:44px;height:44px;border-radius:50%;border:0;background:var(--card2);display:grid;place-items:center}
+.round svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:1.8}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:26px;padding:20px;margin-top:14px;position:relative;overflow:hidden}
+.card h3{font-size:19px}
+.sub{color:var(--sec);font-size:14px;margin-top:4px}
+.hero{background:linear-gradient(160deg,#2a1a1c,#1a1115);border:1px solid rgba(255,170,120,.22);padding:22px}
+.hero::after{content:"";position:absolute;right:-50px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(255,159,67,.22),transparent 65%)}
+.hero .big{font-size:clamp(40px,12vw,54px);font-weight:700;margin-top:10px;position:relative;z-index:1}
+.hero .big.neg{color:var(--red)}
+.hero p{position:relative;z-index:1}
+.minis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px;position:relative;z-index:1}
+.mini{background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:18px;padding:12px}
+.mini .lbl{font-size:10px;letter-spacing:.1em}
+.mini b{display:block;font-family:var(--disp);font-size:19px;margin-top:4px;white-space:nowrap}
+.mini span{font-size:12px;color:var(--sec)}
+
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:9px 15px;font-size:14px;font-weight:600;color:var(--sec)}
+.chip.on{background:var(--ink);color:#1a0f13;border-color:var(--ink)}
+.wrapchips{flex-wrap:wrap;overflow:visible}
+
+.actions{display:grid;grid-template-columns:1.25fr 1fr;gap:12px;margin-top:14px}
+.act{border:0;border-radius:26px;padding:18px;text-align:left;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:4px;background:var(--card);border:1px solid var(--line)}
+.act.main{background:var(--grad);color:#26100f;border:0;box-shadow:0 14px 30px -14px rgba(255,122,89,.7)}
+.act svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:2;margin-bottom:auto}
+.act:not(.main) svg{stroke:var(--acc)}
+.act b{font-family:var(--disp);font-size:20px;line-height:1.1}
+.act span{font-size:14px;opacity:.8}
+
+.lines{margin-top:12px}
+.line{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.line:first-child{border-top:0}
+.line .ic{width:42px;height:42px;border-radius:14px;background:var(--card2);display:grid;place-items:center;flex:none;font-size:19px;overflow:hidden}
+.line .ic img{width:100%;height:100%;object-fit:cover}
+.line .t{flex:1}
+.line .t b{display:block;font-size:15px;font-weight:600}
+.line .t span{font-size:13px;color:var(--sec)}
+.line .v{text-align:right;font-family:var(--disp);font-weight:600;white-space:nowrap}
+.line .v small{display:block;font-family:var(--font);font-size:12px;color:var(--sec);font-weight:500}
+.x{border:0;background:none;color:var(--mute);font-size:20px;width:36px;height:36px;border-radius:10px}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.empty{text-align:center;color:var(--sec);padding:20px 8px;font-size:14px}
+
+.bar{height:10px;border-radius:6px;background:var(--card2);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;border-radius:6px;background:var(--grad)}
+.bar.warn i{background:linear-gradient(90deg,#ffb347,#ff6b5e)}
+.seuil{margin-top:14px}
+.seuil .row{display:flex;justify-content:space-between;font-size:14px}
+.seuil .row b{font-family:var(--disp)}
+.alert{margin-top:12px;background:rgba(255,107,94,.12);border:1px solid rgba(255,107,94,.35);color:#ffc2bc;border-radius:16px;padding:12px 14px;font-size:14px}
+
+label{display:block;font-size:14px;font-weight:600;margin:16px 0 7px;color:var(--sec)}
+.in{width:100%;min-height:52px;border:1px solid var(--line);border-radius:16px;padding:12px 15px;background:var(--card2);font-size:16px;outline:none}
+.in:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(255,159,67,.18)}
+.money{position:relative}.money .in{padding-right:40px;font-family:var(--disp);font-size:22px;font-weight:600}
+.money::after{content:"€";position:absolute;right:16px;top:50%;transform:translateY(-50%);color:var(--sec);font-size:18px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:54px;border:0;border-radius:18px;font-weight:700;font-size:16px;background:var(--grad);color:#26100f;margin-top:18px}
+.btn.ghost{background:var(--card2);color:var(--ink);border:1px solid var(--line)}
+.btn:active,.act:active{transform:scale(.98)}
+.hint{font-size:13px;color:var(--sec);margin-top:7px}
+.calc{margin-top:14px;background:var(--card2);border-radius:18px;padding:14px 16px;display:grid;gap:6px;font-size:14px}
+.calc div{display:flex;justify-content:space-between;gap:10px}
+.calc b{font-family:var(--disp)}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-top:1px solid var(--line)}
+.toggle:first-of-type{border-top:0}
+.toggle b{display:block;font-size:15px}.toggle span{font-size:13px;color:var(--sec)}
+.sw{appearance:none;-webkit-appearance:none;width:52px;height:32px;border-radius:999px;background:var(--card2);border:1px solid var(--line);position:relative;flex:none;transition:.2s;margin:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw:checked{background:var(--acc);border-color:var(--acc)}.sw:checked::after{left:23px}
+.photo{margin-top:14px;border-radius:20px;overflow:hidden;background:var(--card2);border:1px dashed rgba(255,170,120,.3);min-height:150px;display:grid;place-items:center;text-align:center;color:var(--sec);font-size:14px;position:relative}
+.photo img{width:100%;max-height:320px;object-fit:contain;display:block;background:#000}
+.photo input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.photo .cam{display:grid;gap:8px;justify-items:center;padding:20px}
+.photo .cam svg{width:40px;height:40px;stroke:var(--acc);fill:none;stroke-width:1.8}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(18,12,16,.9);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding:4px 4px calc(4px + var(--sb))}
+.tabs button{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--mute);padding:8px 0 6px;min-height:56px;position:relative}
+.tabs button.on{color:var(--acc)}
+.tabs button.on::before{content:"";position:absolute;top:0;width:28px;height:3px;border-radius:2px;background:var(--acc)}
+.tabs svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center}
+.sheet>div{background:var(--card);border-top:1px solid var(--line);border-radius:28px 28px 0 0;width:100%;max-width:560px;padding:22px 18px calc(22px + var(--sb));max-height:90dvh;overflow:auto}
+.toast{position:fixed;left:50%;bottom:calc(96px + var(--sb));transform:translate(-50%,16px);opacity:0;background:var(--ink);color:#1a0f13;padding:12px 18px;border-radius:14px;font-size:14px;font-weight:700;transition:.25s;z-index:80;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.note{font-size:12px;color:var(--mute);margin-top:18px;text-align:center;line-height:1.45}
+h2.title{font-size:30px;margin:4px 0 2px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="statusbar"></div>
+<div id="root"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+{
+/* ================== Règles 2026 (micro-entreprise, transport de personnes = prestations de services BIC) ================== */
+const R = {
+  urssaf: 21.2,          // cotisations sociales, % du CA
+  vl: 1.7,               // versement libératoire de l'impôt, % du CA (si option)
+  abattement: 50,        // abattement forfaitaire pour l'impôt sans versement libératoire
+  tvaCourse: 10,         // TVA sur le transport de personnes (si assujetti)
+  seuilTva: 37500, seuilTvaMaj: 41250, plafondMicro: 83600,
+};
+const CATS = [
+  {k:"carburant",n:"Carburant",e:"⛽",t:20},{k:"recharge",n:"Recharge élec.",e:"🔌",t:20},{k:"peage",n:"Péage / parking",e:"🅿️",t:20},
+  {k:"lavage",n:"Lavage",e:"🧽",t:20},{k:"entretien",n:"Entretien / pneus",e:"🔧",t:20},{k:"loyer",n:"Loyer / LOA",e:"🚗",t:20},
+  {k:"assurance",n:"Assurance",e:"🛡️",t:0},{k:"telephone",n:"Téléphone",e:"📱",t:20},{k:"autre",n:"Autre",e:"🧾",t:20}];
+const CAT = Object.fromEntries(CATS.map(c=>[c.k,c]));
+const PAYS = {urssaf:"URSSAF",impots:"Impôts",tva:"TVA",cfe:"CFE"};
+
+/* ================== utilitaires ================== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur = (v,d=0) => (Math.round(v*100)/100).toLocaleString("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d})+" €";
+const eur2 = v => eur(v,2);
+const num = v => { const n=parseFloat(String(v??"").replace(/\s/g,"").replace(",",".")); return isFinite(n)?n:0; };
+const today = () => new Date().toISOString().slice(0,10);
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const fdate = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove("show"),2300); }
+
+const KEY="gestionvtc:v1";
+const DEF={ cfg:{ acre:false, vl:false, tmi:11, cfp:0.3, tva:"franchise", fuel:80, cfe:0, freq:"mois",
+  plats:[{n:"Uber",c:25},{n:"Bolt",c:20},{n:"Heetch",c:20},{n:"FreeNow",c:15},{n:"Transporteur",c:0},{n:"Privé / espèces",c:0}] }, rec:[], dep:[], pay:[] };
+let S; try{ S=JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+if(!S) S=structuredClone(DEF);
+S.cfg=Object.assign(structuredClone(DEF.cfg),S.cfg||{}); S.rec=S.rec||[]; S.dep=S.dep||[]; S.pay=S.pay||[];
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){ toast("Mémoire du téléphone pleine"); } }
+
+/* ---- photos des tickets : IndexedDB (plus de place que localStorage) ---- */
+const DB = (()=>{ let p; const open=()=>p||(p=new Promise((res,rej)=>{ const r=indexedDB.open("gestionvtc-tickets",1); r.onupgradeneeded=()=>r.result.createObjectStore("p"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }));
+  const tx=(m,f)=>open().then(db=>new Promise((res,rej)=>{ const t=db.transaction("p",m), s=t.objectStore("p"), q=f(s); t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error); }));
+  return { put:(k,v)=>tx("readwrite",s=>s.put(v,k)), get:k=>tx("readonly",s=>s.get(k)), del:k=>tx("readwrite",s=>s.delete(k)) }; })();
+function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(), u=URL.createObjectURL(file);
+  img.onload=()=>{ const m=1400, k=Math.min(1,m/Math.max(img.width,img.height)), c=document.createElement("canvas"); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>res(b),"image/jpeg",.72); };
+  img.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error("image")); }; img.src=u; }); }
+
+/* ================== périodes ================== */
+let per = "mois";
+function range(p, ref=new Date()){
+  const y=ref.getFullYear(), m=ref.getMonth();
+  if(p==="mois") return [new Date(y,m,1), new Date(y,m+1,1), 1];
+  if(p==="trim"){ const q=Math.floor(m/3)*3; return [new Date(y,q,1), new Date(y,q+3,1), 3]; }
+  return [new Date(y,0,1), new Date(y+1,0,1), 12];
+}
+const inR = (d,[a,b]) => { const t=new Date(d+"T12:00"); return t>=a && t<b; };
+const PER_N = {mois:"Ce mois",trim:"Ce trimestre",an:"Cette année"};
+
+/* ================== le calcul ================== */
+function compute(p=per){
+  const r=range(p), c=S.cfg, ass=c.tva==="assujetti";
+  const rec=S.rec.filter(x=>inR(x.d,r)), dep=S.dep.filter(x=>inR(x.d,r)), pay=S.pay.filter(x=>inR(x.d,r));
+  const brut=rec.reduce((s,x)=>s+x.brut,0), recu=rec.reduce((s,x)=>s+(x.net??x.brut),0);
+  const ht = ass ? brut/(1+R.tvaCourse/100) : brut;
+  const tvaColl = brut-ht;
+  const depTTC=dep.reduce((s,x)=>s+x.ttc,0);
+  const tvaDep=dep.reduce((s,x)=>s+x.ttc*x.t/(100+x.t),0);
+  const tvaDed = ass ? dep.reduce((s,x)=>s+x.ttc*x.t/(100+x.t)*((x.cat==="carburant")?c.fuel/100:1),0) : 0;
+  const urssafRate = R.urssaf*(c.acre?0.75:1)+c.cfp;
+  const urssaf = ht*urssafRate/100;
+  const impot = c.vl ? ht*R.vl/100 : ht*(1-R.abattement/100)*c.tmi/100;
+  const tva = Math.max(0,tvaColl-tvaDed);
+  const cfe = c.cfe*r[2]/12;
+  const du = urssaf+impot+tva+cfe;
+  const paye = pay.reduce((s,x)=>s+x.amt,0);
+  const payeBy = k => pay.filter(x=>x.type===k).reduce((s,x)=>s+x.amt,0);
+  return { rec,dep,pay,brut,ht,recu,commission:brut-recu,depTTC,tvaDep,tvaDed,tvaColl,urssafRate,urssaf,impot,tva,cfe,du,paye,payeBy,
+    reste:Math.max(0,du-paye), dispo:recu-depTTC-du, benef:recu-depTTC };
+}
+
+/* ================== interface ================== */
+let tab = location.hash.slice(1) || "accueil";
+const TABS = {accueil:["Accueil",'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'],
+  recettes:["Recettes",'<path d="M12 3v18M17 7.5c0-1.9-2.2-3-5-3s-5 1.1-5 3.2c0 4.6 10 2.3 10 7 0 2.1-2.2 3.3-5 3.3s-5-1.2-5-3"/>'],
+  depenses:["Dépenses",'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'],
+  impots:["Impôts",'<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-6h6v6M4 10h16"/>'],
+  reglages:["Réglages",'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>']};
+const root=$("#root");
+
+function perChips(){ return `<div class="chips" id="per" style="margin-top:4px">${Object.entries(PER_N).map(([k,n])=>`<button class="chip ${k===per?"on":""}" data-per="${k}">${n}</button>`).join("")}</div>`; }
+function topbar(){ return `<div class="top"><div class="brand"><i>€</i><span>Gestion <b>VTC</b></span></div><button class="round" data-tab="reglages" aria-label="Réglages"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button></div>`; }
+
+function vAccueil(){
+  const k=compute(), y=compute("an"), c=S.cfg;
+  const plats={}; k.rec.forEach(x=>plats[x.plat]=(plats[x.plat]||0)+x.brut);
+  const pl=Object.entries(plats).sort((a,b)=>b[1]-a[1]), maxp=pl.length?pl[0][1]:1;
+  const now=new Date(), mo=now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  const tvaPct=Math.min(100,y.ht/R.seuilTva*100), microPct=Math.min(100,y.ht/R.plafondMicro*100);
+  return `${topbar()}
+  ${perChips()}
+  <div class="card hero">
+    <div class="lbl">${esc(mo)}</div>
+    <p class="sub" style="margin-top:12px;color:var(--ink);font-weight:600">Argent que tu peux utiliser</p>
+    <div class="big num ${k.dispo<0?"neg":""}">${eur(k.dispo)}</div>
+    <p class="sub">${k.du>0?`On a déjà retiré <b style="color:var(--ink)">${eur(k.du)}</b> à garder pour l’URSSAF${k.impot>0?", les impôts":""}${k.tva>0?" et la TVA":""}.`:"Ajoute tes recettes pour voir ce qui est vraiment à toi."}</p>
+    <div class="minis">
+      <div class="mini"><div class="lbl">Encaissé</div><b>${eur(k.recu)}</b><span>sur ton compte</span></div>
+      <div class="mini"><div class="lbl">À bloquer</div><b>${eur(k.reste)}</b><span>${k.paye>0?"déjà payé "+eur(k.paye):"pas encore payé"}</span></div>
+      <div class="mini"><div class="lbl">Dépenses</div><b>${eur(k.depTTC)}</b><span>${k.dep.length} ticket${k.dep.length>1?"s":""}</span></div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="act main" data-go="depenses" data-scan="1"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><b>Scanner un ticket</b><span>Essence, péage, lavage… TVA calculée</span></button>
+    <button class="act" data-go="recettes"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><b>Ajouter mes gains</b><span>Uber, Bolt, Heetch…</span></button>
+  </div>
+  <div class="card"><h3>À mettre de côté</h3><p class="sub">${PER_N[per]} · sur ${eur(k.brut)} de courses (montant brut, commission comprise)</p>
+    <div class="lines">
+      ${lineDu("URSSAF", k.urssafRate.toLocaleString("fr-FR",{maximumFractionDigits:1})+" % du CA"+(c.acre?" · ACRE":""), k.urssaf, k.payeBy("urssaf"))}
+      ${lineDu("Impôt sur le revenu", c.vl?"versement libératoire 1,7 %":"estimation, tranche "+c.tmi+" %", k.impot, k.payeBy("impots"))}
+      ${c.tva==="assujetti"?lineDu("TVA à reverser","10 % collectés − TVA des tickets", k.tva, k.payeBy("tva")):""}
+      ${c.cfe>0?lineDu("CFE","provision sur "+c.cfe+" € / an", k.cfe, k.payeBy("cfe")):""}
+    </div>
+    <button class="btn ghost" id="addpay">J’ai payé l’URSSAF / les impôts</button>
+  </div>
+  <div class="card"><h3>Par plateforme</h3><p class="sub">${PER_N[per]}${k.commission>0?` · commissions : <b style="color:var(--ink)">${eur(k.commission)}</b>`:""}</p>
+    ${pl.length?pl.map(([n,v])=>`<div class="seuil"><div class="row"><span>${esc(n)}</span><b>${eur(v)}</b></div><div class="bar"><i style="width:${(v/maxp*100).toFixed(1)}%"></i></div></div>`).join(""):`<div class="empty">Pas encore de recettes sur cette période.</div>`}
+  </div>
+  <div class="card"><h3>Tes plafonds ${now.getFullYear()}</h3><p class="sub">Chiffre d’affaires de l’année : <b style="color:var(--ink)">${eur(y.ht)}</b></p>
+    ${c.tva==="franchise"?`<div class="seuil"><div class="row"><span>Seuil TVA</span><b>${eur(R.seuilTva)}</b></div><div class="bar ${tvaPct>85?"warn":""}"><i style="width:${tvaPct.toFixed(1)}%"></i></div></div>`:""}
+    <div class="seuil"><div class="row"><span>Plafond micro-entreprise</span><b>${eur(R.plafondMicro)}</b></div><div class="bar ${microPct>85?"warn":""}"><i style="width:${microPct.toFixed(1)}%"></i></div></div>
+    ${c.tva==="franchise"&&y.ht>R.seuilTva?`<div class="alert">Tu as dépassé ${eur(R.seuilTva)}. ${y.ht>R.seuilTvaMaj?"Au-delà de "+eur(R.seuilTvaMaj)+", tu dois facturer la TVA tout de suite.":"Tu devras facturer la TVA à partir du 1er janvier prochain."} Passe le réglage TVA sur « Assujetti » à ce moment-là.</div>`:""}
+  </div>
+  <p class="note">Estimations pour savoir quoi mettre de côté, d’après les règles 2026 de la micro-entreprise. Les montants exacts sont ceux de l’URSSAF et des impôts.</p>`;
+}
+function lineDu(n,s,v,paid){ const reste=Math.max(0,v-paid);
+  return `<div class="line"><div class="t"><b>${n}</b><span>${s}</span></div><div class="v">${eur(v)}${paid>0?`<small class="${reste<=0.5?"pos":""}">${reste<=0.5?"payé ✓":"reste "+eur(reste)}</small>`:""}</div></div>`; }
+
+/* ---- Recettes ---- */
+let recPlat = null, recMode = "brut";
+function vRecettes(){
+  const k=compute(); const plats=S.cfg.plats; if(!recPlat||!plats.find(p=>p.n===recPlat)) recPlat=plats[0]?.n;
+  return `${topbar()}<h2 class="title">Recettes</h2><p class="sub">Pas besoin de noter chaque course : mets le total de ta journée ou de ta semaine par plateforme.</p>
+  <div class="card">
+    <label>Plateforme</label><div class="chips wrapchips" id="plats">${plats.map(p=>`<button class="chip ${p.n===recPlat?"on":""}" data-p="${esc(p.n)}">${esc(p.n)}</button>`).join("")}</div>
+    <label for="r-date">Date (ou fin de la semaine)</label><input class="in" id="r-date" type="date" value="${today()}">
+    <label>Je connais</label><div class="chips" id="mode"><button class="chip ${recMode==="brut"?"on":""}" data-m="brut">Brut + net</button><button class="chip ${recMode==="net"?"on":""}" data-m="net">Seulement le net</button></div>
+    ${recMode==="brut"?`<label for="r-brut">Total payé par les clients (brut)</label><div class="money"><input class="in" id="r-brut" inputmode="decimal" placeholder="0"></div>
+      <label for="r-net">Versé sur ton compte (net)</label><div class="money"><input class="in" id="r-net" inputmode="decimal" placeholder="facultatif"></div>`
+    :`<label for="r-net">Versé sur ton compte (net)</label><div class="money"><input class="in" id="r-net" inputmode="decimal" placeholder="0"></div>
+      <p class="hint">Le brut sera estimé avec la commission de la plateforme (réglable dans Réglages).</p>`}
+    <div class="calc" id="r-calc"></div>
+    <button class="btn" id="r-add">Ajouter</button>
+    <p class="hint">L’URSSAF se calcule sur le <b>brut</b> (commission de la plateforme comprise), pas sur ce que tu reçois.</p>
+  </div>
+  ${perChips()}
+  <div class="card"><h3>${PER_N[per]} · ${eur(k.brut)}</h3><p class="sub">${k.rec.length} saisie${k.rec.length>1?"s":""} · reçu ${eur(k.recu)}</p>
+    <div class="lines">${k.rec.length?[...k.rec].sort((a,b)=>b.d.localeCompare(a.d)).map(x=>`<div class="line"><div class="ic">💶</div><div class="t"><b>${esc(x.plat)}</b><span>${fdate(x.d)}${x.est?" · brut estimé":""}</span></div><div class="v">${eur2(x.brut)}${x.net!=null?`<small>net ${eur2(x.net)}</small>`:""}</div><button class="x" data-delrec="${x.id}" aria-label="Supprimer">×</button></div>`).join(""):`<div class="empty">Aucune recette sur cette période.</div>`}</div>
+  </div>`;
+}
+function recPreview(){
+  const el=$("#r-calc"); if(!el) return; const p=S.cfg.plats.find(x=>x.n===recPlat)||{c:0};
+  let brut, net; if(recMode==="brut"){ brut=num($("#r-brut").value); net=$("#r-net").value.trim()?num($("#r-net").value):null; } else { net=num($("#r-net").value); brut=p.c<100?net/(1-p.c/100):net; }
+  if(!brut){ el.classList.add("hide"); return; } el.classList.remove("hide");
+  const ht=S.cfg.tva==="assujetti"?brut/1.1:brut, rate=R.urssaf*(S.cfg.acre?0.75:1)+S.cfg.cfp;
+  const garde=ht*rate/100+(S.cfg.vl?ht*R.vl/100:ht*.5*S.cfg.tmi/100)+(brut-ht);
+  el.innerHTML=`<div><span>Chiffre d’affaires (brut)</span><b>${eur2(brut)}</b></div>${net!=null?`<div><span>Commission</span><b>${eur2(brut-net)}</b></div>`:""}<div><span>À garder de côté</span><b style="color:var(--acc)">${eur2(garde)}</b></div><div><span>Vraiment à toi</span><b class="pos">${eur2((net??brut)-garde)}</b></div>`;
+}
+
+/* ---- Dépenses ---- */
+let depCat="carburant", depPhoto=null, depPhotoURL=null;
+function vDepenses(){
+  const k=compute(), ass=S.cfg.tva==="assujetti";
+  return `${topbar()}<h2 class="title">Dépenses</h2><p class="sub">Prends le ticket en photo, choisis le type et le montant : la TVA est calculée toute seule.</p>
+  <div class="card">
+    <div class="photo" id="ph">${depPhotoURL?`<img src="${depPhotoURL}" alt="Ticket">`:`<div class="cam"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><b style="color:var(--ink)">Prendre le ticket en photo</b><span>ou choisir dans tes photos</span></div>`}<input type="file" accept="image/*" capture="environment" id="ph-in" aria-label="Photo du ticket"></div>
+    <label>Type de dépense</label><div class="chips wrapchips" id="cats">${CATS.map(c=>`<button class="chip ${c.k===depCat?"on":""}" data-c="${c.k}">${c.e} ${c.n}</button>`).join("")}</div>
+    <div class="grid2"><div><label for="d-ttc">Montant TTC</label><div class="money"><input class="in" id="d-ttc" inputmode="decimal" placeholder="0"></div></div>
+    <div><label for="d-t">TVA</label><select class="in" id="d-t">${[20,10,5.5,0].map(t=>`<option value="${t}" ${t===CAT[depCat].t?"selected":""}>${String(t).replace(".",",")} %</option>`).join("")}</select></div></div>
+    <label for="d-date">Date</label><input class="in" id="d-date" type="date" value="${today()}">
+    <div class="calc hide" id="d-calc"></div>
+    <button class="btn" id="d-add">Enregistrer la dépense</button>
+    ${ass?"":`<p class="hint">Tu es en franchise de TVA : la TVA des tickets est notée mais pas récupérable. Elle le devient si tu passes « Assujetti » dans Réglages.</p>`}
+  </div>
+  ${perChips()}
+  <div class="card"><h3>${PER_N[per]} · ${eur(k.depTTC)}</h3><p class="sub">dont TVA ${eur2(k.tvaDep)}${ass?` · récupérable ${eur2(k.tvaDed)}`:""}</p>
+    <div class="lines" id="deplist">${k.dep.length?[...k.dep].sort((a,b)=>b.d.localeCompare(a.d)).map(x=>`<div class="line"><div class="ic" data-ph="${x.ph?x.id:""}">${CAT[x.cat]?.e||"🧾"}</div><div class="t"><b>${esc(CAT[x.cat]?.n||"Autre")}</b><span>${fdate(x.d)} · TVA ${eur2(x.ttc*x.t/(100+x.t))}</span></div><div class="v">${eur2(x.ttc)}</div><button class="x" data-deldep="${x.id}" aria-label="Supprimer">×</button></div>`).join(""):`<div class="empty">Aucune dépense sur cette période.</div>`}</div>
+  </div>`;
+}
+function depPreview(){ const el=$("#d-calc"); if(!el) return; const ttc=num($("#d-ttc").value), t=num($("#d-t").value);
+  if(!ttc){ el.classList.add("hide"); return; } el.classList.remove("hide");
+  const tva=ttc*t/(100+t), ass=S.cfg.tva==="assujetti", rec=ass?tva*(depCat==="carburant"?S.cfg.fuel/100:1):0;
+  el.innerHTML=`<div><span>Montant HT</span><b>${eur2(ttc-tva)}</b></div><div><span>TVA (${String(t).replace(".",",")} %)</span><b>${eur2(tva)}</b></div>${ass?`<div><span>TVA que tu récupères</span><b class="pos">${eur2(rec)}</b></div>`:""}`; }
+
+/* ---- Impôts ---- */
+function vImpots(){
+  const c=S.cfg, k=compute(), ass=c.tva==="assujetti";
+  const dr=range(c.freq==="mois"?"mois":"trim"), dk=compute(c.freq==="mois"?"mois":"trim");
+  const dName=dr[0].toLocaleDateString("fr-FR",{month:"long",year:"numeric"});
+  return `${topbar()}<h2 class="title">Impôts & URSSAF</h2><p class="sub">Le détail de ce que tu dois, et ce que tu as déjà payé.</p>
+  <div class="card hero"><div class="lbl">Déclaration URSSAF · ${c.freq==="mois"?esc(dName):"ce trimestre"}</div>
+    <p class="sub" style="margin-top:12px;color:var(--ink);font-weight:600">Chiffre d’affaires à déclarer</p>
+    <div class="big num">${eur(dk.ht)}</div>
+    <p class="sub">C’est ton total <b>brut</b>${ass?" hors TVA":""}, commissions comprises. À payer avec : environ ${eur(dk.urssaf+(c.vl?dk.impot:0))}.</p></div>
+  ${perChips()}
+  <div class="card"><h3>Le calcul · ${PER_N[per].toLowerCase()}</h3>
+    <div class="calc">
+      <div><span>Courses (brut${ass?", TVA comprise":""})</span><b>${eur2(k.brut)}</b></div>
+      ${ass?`<div><span>Chiffre d’affaires HT</span><b>${eur2(k.ht)}</b></div>`:""}
+      <div><span>URSSAF ${k.urssafRate.toLocaleString("fr-FR",{maximumFractionDigits:2})} %</span><b>${eur2(k.urssaf)}</b></div>
+      <div><span>${c.vl?"Impôt (versement libératoire 1,7 %)":"Impôt estimé (50 % du CA × "+c.tmi+" %)"}</span><b>${eur2(k.impot)}</b></div>
+      ${ass?`<div><span>TVA collectée (10 %)</span><b>${eur2(k.tvaColl)}</b></div><div><span>TVA récupérée sur tickets</span><b>− ${eur2(k.tvaDed)}</b></div><div><span>TVA à reverser</span><b>${eur2(k.tva)}</b></div>`:""}
+      ${c.cfe>0?`<div><span>CFE (provision)</span><b>${eur2(k.cfe)}</b></div>`:""}
+      <div style="border-top:1px solid var(--line);padding-top:8px;margin-top:4px"><span><b>Total à mettre de côté</b></span><b style="color:var(--acc)">${eur2(k.du)}</b></div>
+      <div><span>Déjà payé</span><b class="pos">${eur2(k.paye)}</b></div>
+      <div><span><b>Reste à payer</b></span><b>${eur2(k.reste)}</b></div>
+    </div>
+    <button class="btn" id="addpay">Ajouter un paiement</button></div>
+  <div class="card"><h3>Paiements faits</h3><div class="lines">${k.pay.length?[...k.pay].sort((a,b)=>b.d.localeCompare(a.d)).map(x=>`<div class="line"><div class="ic">✅</div><div class="t"><b>${PAYS[x.type]}</b><span>${fdate(x.d)}</span></div><div class="v">${eur2(x.amt)}</div><button class="x" data-delpay="${x.id}" aria-label="Supprimer">×</button></div>`).join(""):`<div class="empty">Aucun paiement noté sur cette période.</div>`}</div></div>
+  <div class="card"><h3>Bon à savoir</h3><p class="sub" style="margin-top:8px">• Tu déclares ton chiffre d’affaires sur autoentrepreneur.urssaf.fr ${c.freq==="mois"?"chaque mois":"chaque trimestre"}, même s’il est à 0 €.<br>• ${c.vl?"Avec le versement libératoire, ton impôt est payé en même temps que l’URSSAF.":"Sans versement libératoire, tu déclares ton CA en mai (déclaration de revenus, case micro-BIC services) et l’impôt arrive ensuite : c’est pour ça qu’on le met de côté dès maintenant."}<br>• En micro-entreprise, tes dépenses ne baissent ni l’URSSAF ni l’impôt : elles servent à savoir ce qui te reste vraiment${ass?" et à récupérer la TVA":""}.</p></div>`;
+}
+
+/* ---- Réglages ---- */
+function vReglages(){ const c=S.cfg;
+  return `${topbar()}<h2 class="title">Réglages</h2><p class="sub">Règle-les une fois, d’après ta situation URSSAF.</p>
+  <div class="card">
+    <div class="toggle"><div><b>ACRE</b><span>Réduction de 25 % des cotisations la première année</span></div><input type="checkbox" class="sw" id="c-acre" ${c.acre?"checked":""}></div>
+    <div class="toggle"><div><b>Versement libératoire</b><span>Impôt payé avec l’URSSAF (1,7 % du CA)</span></div><input type="checkbox" class="sw" id="c-vl" ${c.vl?"checked":""}></div>
+    ${c.vl?"":`<label for="c-tmi">Ta tranche d’impôt (pour l’estimation)</label><select class="in" id="c-tmi">${[0,11,30,41].map(t=>`<option value="${t}" ${t===c.tmi?"selected":""}>${t} %</option>`).join("")}</select><p class="hint">Avec ton salaire du resto en plus, la plupart des gens sont dans la tranche 11 %.</p>`}
+    <label>TVA</label><div class="chips wrapchips" id="c-tva"><button class="chip ${c.tva==="franchise"?"on":""}" data-v="franchise">Franchise (pas de TVA)</button><button class="chip ${c.tva==="assujetti"?"on":""}" data-v="assujetti">Assujetti (10 %)</button></div>
+    ${c.tva==="assujetti"?`<label for="c-fuel">TVA récupérable sur le carburant</label><select class="in" id="c-fuel">${[80,100].map(t=>`<option value="${t}" ${t===c.fuel?"selected":""}>${t} %</option>`).join("")}</select><p class="hint">Demande à ton comptable lequel s’applique à ta voiture.</p>`:""}
+    <label>Déclaration URSSAF</label><div class="chips wrapchips" id="c-freq"><button class="chip ${c.freq==="mois"?"on":""}" data-v="mois">Chaque mois</button><button class="chip ${c.freq==="trim"?"on":""}" data-v="trim">Chaque trimestre</button></div>
+    <label for="c-cfe">CFE (montant annuel, 0 si exonéré)</label><div class="money"><input class="in" id="c-cfe" inputmode="decimal" value="${c.cfe||""}" placeholder="0"></div>
+    <label for="c-cfp">Formation pro (CFP, % du CA)</label><select class="in" id="c-cfp">${[0.1,0.3].map(t=>`<option value="${t}" ${t===c.cfp?"selected":""}>${String(t).replace(".",",")} %</option>`).join("")}</select>
+  </div>
+  <div class="card"><h3>Plateformes et commissions</h3><p class="sub">Sert à estimer le brut quand tu ne connais que le net.</p>
+    <div class="lines" id="platlist">${c.plats.map((p,i)=>`<div class="line"><div class="t"><input class="in" data-pn="${i}" value="${esc(p.n)}" aria-label="Nom" style="min-height:44px"></div><div style="width:92px" class="money"><input class="in" data-pc="${i}" inputmode="decimal" value="${p.c}" aria-label="Commission" style="min-height:44px;font-size:16px"></div><button class="x" data-delplat="${i}" aria-label="Supprimer">×</button></div>`).join("")}</div>
+    <button class="btn ghost" id="addplat">+ Ajouter une plateforme</button></div>
+  <div class="card"><h3>Mes données</h3><p class="sub">Tout reste sur ce téléphone. Exporte ton livre des recettes et tes dépenses (obligatoire à garder en micro-entreprise).</p>
+    <div class="grid2"><button class="btn ghost" id="exp">Exporter (CSV)</button><button class="btn ghost" id="reset" style="color:var(--red)">Tout effacer</button></div></div>
+  <p class="note">Taux 2026 : URSSAF 21,2 % · versement libératoire 1,7 % · TVA transport 10 % · franchise TVA 37 500 € · plafond micro 83 600 €.</p>`;
+}
+
+/* ---- feuille « paiement » ---- */
+function paySheet(){
+  const k=compute(); const s=document.createElement("div"); s.className="sheet";
+  s.innerHTML=`<div role="dialog" aria-label="Ajouter un paiement"><h3 style="font-size:22px">Ajouter un paiement</h3><p class="sub">Ce que tu as payé sort de « À bloquer ».</p>
+    <label>Payé à</label><div class="chips wrapchips" id="p-type">${Object.entries(PAYS).map(([k2,n],i)=>`<button class="chip ${i===0?"on":""}" data-v="${k2}">${n}</button>`).join("")}</div>
+    <label for="p-amt">Montant</label><div class="money"><input class="in" id="p-amt" inputmode="decimal" placeholder="${Math.round(k.urssaf-k.payeBy("urssaf"))||0}"></div>
+    <label for="p-date">Date</label><input class="in" id="p-date" type="date" value="${today()}">
+    <div class="grid2"><button class="btn ghost" id="p-cancel">Annuler</button><button class="btn" id="p-ok">Enregistrer</button></div></div>`;
+  document.body.appendChild(s);
+  let type="urssaf"; s.querySelector("#p-type").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b) return; type=b.dataset.v; s.querySelectorAll("#p-type .chip").forEach(x=>x.classList.toggle("on",x===b)); });
+  const close=()=>s.remove(); s.addEventListener("click",e=>{ if(e.target===s) close(); }); s.querySelector("#p-cancel").addEventListener("click",close);
+  s.querySelector("#p-ok").addEventListener("click",()=>{ const amt=num(s.querySelector("#p-amt").value); if(amt<=0) return toast("Indique le montant payé");
+    S.pay.push({id:uid(),d:s.querySelector("#p-date").value||today(),type,amt}); save(); close(); toast("Paiement noté ✓"); render(); });
+  setTimeout(()=>s.querySelector("#p-amt").focus(),80);
+}
+function photoSheet(id){ DB.get(id).then(b=>{ if(!b) return toast("Photo introuvable"); const u=URL.createObjectURL(b), s=document.createElement("div"); s.className="sheet";
+  s.innerHTML=`<div><img src="${u}" alt="Ticket" style="width:100%;border-radius:18px;display:block"><button class="btn ghost" id="ph-close">Fermer</button></div>`;
+  document.body.appendChild(s); const close=()=>{ URL.revokeObjectURL(u); s.remove(); }; s.addEventListener("click",e=>{ if(e.target===s||e.target.id==="ph-close") close(); }); }).catch(()=>toast("Photo introuvable")); }
+
+/* ================== rendu + événements ================== */
+function render(){
+  const V={accueil:vAccueil,recettes:vRecettes,depenses:vDepenses,impots:vImpots,reglages:vReglages};
+  if(!V[tab]) tab="accueil";
+  root.innerHTML=`<div class="wrap">${V[tab]()}</div><nav class="tabs" aria-label="Navigation">${Object.entries(TABS).map(([k,[n,ic]])=>`<button data-tab="${k}" class="${k===tab?"on":""}" aria-current="${k===tab?"page":"false"}"><svg viewBox="0 0 24 24" aria-hidden="true">${ic}</svg>${n}</button>`).join("")}</nav>`;
+  bind();
+}
+function go(t){ tab=t; history.replaceState(null,"","#"+t); render(); window.scrollTo(0,0); }
+
+function bind(){
+  root.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.tab)));
+  root.querySelectorAll("[data-go]").forEach(b=>b.addEventListener("click",()=>{ go(b.dataset.go); if(b.dataset.scan) setTimeout(()=>{ const i=$("#ph-in"); if(i) i.click(); },150); }));
+  const pc=$("#per"); if(pc) pc.addEventListener("click",e=>{ const b=e.target.closest("[data-per]"); if(!b) return; per=b.dataset.per; render(); });
+  const ap=$("#addpay"); if(ap) ap.addEventListener("click",paySheet);
+  root.querySelectorAll("[data-delrec]").forEach(b=>b.addEventListener("click",()=>{ S.rec=S.rec.filter(x=>x.id!==b.dataset.delrec); save(); toast("Supprimé"); render(); }));
+  root.querySelectorAll("[data-delpay]").forEach(b=>b.addEventListener("click",()=>{ S.pay=S.pay.filter(x=>x.id!==b.dataset.delpay); save(); render(); }));
+  root.querySelectorAll("[data-deldep]").forEach(b=>b.addEventListener("click",()=>{ const x=S.dep.find(y=>y.id===b.dataset.deldep); if(x&&x.ph) DB.del(x.id).catch(()=>{}); S.dep=S.dep.filter(y=>y.id!==b.dataset.deldep); save(); toast("Supprimé"); render(); }));
+
+  if(tab==="recettes"){
+    $("#plats").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b) return; recPlat=b.dataset.p; root.querySelectorAll("#plats .chip").forEach(x=>x.classList.toggle("on",x===b)); recPreview(); });
+    $("#mode").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b||b.dataset.m===recMode) return; recMode=b.dataset.m; const d=$("#r-date").value; render(); $("#r-date").value=d; });
+    root.querySelectorAll("#r-brut,#r-net").forEach(i=>i.addEventListener("input",recPreview)); recPreview();
+    $("#r-add").addEventListener("click",()=>{ const p=S.cfg.plats.find(x=>x.n===recPlat)||{n:recPlat||"Autre",c:0}; let brut,net=null,est=false;
+      if(recMode==="brut"){ brut=num($("#r-brut").value); if($("#r-net").value.trim()) net=num($("#r-net").value); }
+      else { net=num($("#r-net").value); brut=p.c<100?Math.round(net/(1-p.c/100)*100)/100:net; est=p.c>0; }
+      if(!(brut>0)) return toast("Indique un montant");
+      if(net!=null && net>brut) return toast("Le net ne peut pas dépasser le brut");
+      S.rec.push({id:uid(),d:$("#r-date").value||today(),plat:p.n,brut,net,est}); save(); toast("Ajouté : "+eur2(brut)+" "+p.n); render(); });
+  }
+
+  if(tab==="depenses"){
+    $("#cats").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b) return; depCat=b.dataset.c; root.querySelectorAll("#cats .chip").forEach(x=>x.classList.toggle("on",x===b)); $("#d-t").value=String(CAT[depCat].t); depPreview(); });
+    $("#d-ttc").addEventListener("input",depPreview); $("#d-t").addEventListener("change",depPreview);
+    $("#ph-in").addEventListener("change",async e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+      try{ depPhoto=await shrink(f); if(depPhotoURL) URL.revokeObjectURL(depPhotoURL); depPhotoURL=URL.createObjectURL(depPhoto);
+        $("#ph").querySelector(".cam, img")?.remove(); const img=document.createElement("img"); img.src=depPhotoURL; img.alt="Ticket"; $("#ph").prepend(img); setTimeout(()=>$("#d-ttc").focus(),100); }
+      catch(err){ toast("Impossible de lire cette photo"); } });
+    $("#d-add").addEventListener("click",async()=>{ const ttc=num($("#d-ttc").value); if(!(ttc>0)) return toast("Indique le montant TTC du ticket");
+      const x={id:uid(),d:$("#d-date").value||today(),cat:depCat,ttc,t:num($("#d-t").value),ph:false};
+      if(depPhoto){ try{ await DB.put(x.id,depPhoto); x.ph=true; }catch(e){ toast("Photo non enregistrée (mémoire pleine)"); } }
+      S.dep.push(x); save(); depPhoto=null; if(depPhotoURL) URL.revokeObjectURL(depPhotoURL); depPhotoURL=null;
+      toast("Dépense ajoutée · TVA "+eur2(ttc*x.t/(100+x.t))); render(); });
+    root.querySelectorAll("[data-ph]").forEach(el=>{ const id=el.dataset.ph; if(!id) return;
+      DB.get(id).then(b=>{ if(!b) return; const u=URL.createObjectURL(b); el.innerHTML=`<img src="${u}" alt="">`; el.style.cursor="pointer"; el.addEventListener("click",()=>photoSheet(id)); }).catch(()=>{}); });
+  }
+
+  if(tab==="reglages"){
+    const set=(k,v)=>{ S.cfg[k]=v; save(); };
+    $("#c-acre").addEventListener("change",e=>{ set("acre",e.target.checked); toast(e.target.checked?"ACRE activée":"ACRE désactivée"); });
+    $("#c-vl").addEventListener("change",e=>{ set("vl",e.target.checked); render(); });
+    const tmi=$("#c-tmi"); if(tmi) tmi.addEventListener("change",e=>set("tmi",num(e.target.value)));
+    $("#c-tva").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b) return; set("tva",b.dataset.v); render(); });
+    $("#c-freq").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(!b) return; set("freq",b.dataset.v); render(); });
+    const fu=$("#c-fuel"); if(fu) fu.addEventListener("change",e=>set("fuel",num(e.target.value)));
+    $("#c-cfe").addEventListener("change",e=>set("cfe",num(e.target.value)));
+    $("#c-cfp").addEventListener("change",e=>set("cfp",num(e.target.value)));
+    root.querySelectorAll("[data-pn]").forEach(i=>i.addEventListener("change",()=>{ const p=S.cfg.plats[+i.dataset.pn], old=p.n, nw=i.value.trim()||old; p.n=nw; S.rec.forEach(r=>{ if(r.plat===old) r.plat=nw; }); save(); }));
+    root.querySelectorAll("[data-pc]").forEach(i=>i.addEventListener("change",()=>{ S.cfg.plats[+i.dataset.pc].c=Math.min(90,Math.max(0,num(i.value))); save(); }));
+    root.querySelectorAll("[data-delplat]").forEach(b=>b.addEventListener("click",()=>{ S.cfg.plats.splice(+b.dataset.delplat,1); save(); render(); }));
+    $("#addplat").addEventListener("click",()=>{ S.cfg.plats.push({n:"Nouvelle",c:0}); save(); render(); });
+    $("#exp").addEventListener("click",exportCSV);
+    $("#reset").addEventListener("click",()=>{ if(!confirm("Effacer toutes les recettes, dépenses et paiements de ce téléphone ?")) return; S=structuredClone(DEF); save(); toast("Tout est effacé"); render(); });
+  }
+}
+
+function exportCSV(){
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"', n=v=>String(Math.round(v*100)/100).replace(".",",");
+  const L=["Type;Date;Plateforme / catégorie;Brut / TTC (€);Net reçu / TVA (€)"];
+  [...S.rec].sort((a,b)=>a.d.localeCompare(b.d)).forEach(x=>L.push(["Recette",x.d,q(x.plat),n(x.brut),x.net!=null?n(x.net):""].join(";")));
+  [...S.dep].sort((a,b)=>a.d.localeCompare(b.d)).forEach(x=>L.push(["Dépense",x.d,q(CAT[x.cat]?.n||"Autre"),n(x.ttc),n(x.ttc*x.t/(100+x.t))].join(";")));
+  [...S.pay].sort((a,b)=>a.d.localeCompare(b.d)).forEach(x=>L.push(["Paiement",x.d,q(PAYS[x.type]),n(x.amt),""].join(";")));
+  const blob=new Blob(["﻿"+L.join("\n")],{type:"text/csv"}), name="gestion-vtc-"+today()+".csv", f=new File([blob],name,{type:"text/csv"});
+  if(navigator.canShare&&navigator.canShare({files:[f]})) return navigator.share({files:[f],title:"Gestion VTC"}).catch(()=>{});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); toast("Export téléchargé ✓");
+}
+
+/* icône de l'écran d'accueil, dessinée ici (dégradé orange → rose avec « € ») */
+try{ const c=document.createElement("canvas"); c.width=c.height=180; const x=c.getContext("2d"), g=x.createLinearGradient(0,0,180,180);
+  g.addColorStop(0,"#ffb347"); g.addColorStop(.55,"#ff7a59"); g.addColorStop(1,"#f0588f"); x.fillStyle=g; x.fillRect(0,0,180,180);
+  x.fillStyle="#26100f"; x.font="700 104px -apple-system, Helvetica, Arial, sans-serif"; x.textAlign="center"; x.textBaseline="middle"; x.fillText("€",90,96);
+  $("#touchicon").href=c.toDataURL("image/png"); }catch(e){}
+
+window.addEventListener("hashchange",()=>{ const t=location.hash.slice(1); if(TABS[t]&&t!==tab){ tab=t; render(); } });
+render();
+}
+</script>
+</body>
+</html>
